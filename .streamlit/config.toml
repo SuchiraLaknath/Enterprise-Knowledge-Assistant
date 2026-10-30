@@ -1,0 +1,9 @@
+# Streamlit settings for local use. Docker Compose overrides the address in build step 11.
+
+[server]
+# Only this machine can reach the UI, because the demo sign-in is one click.
+address = "localhost"
+
+[browser]
+# Rule 6: the app sends nothing to outside services.
+gatherUsageStats = false

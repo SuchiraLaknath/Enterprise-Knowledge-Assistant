@@ -8,8 +8,9 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: knowledge_assistant
     ports:
-      # Host port 5433 avoids clashing with a Postgres already running on 5432.
-      - "5433:5432"
+      # Host port 5433 avoids clashing with a Postgres already running on 5432. Binding to
+      # 127.0.0.1 keeps checkpoints, which hold evidence, away from the local network.
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
