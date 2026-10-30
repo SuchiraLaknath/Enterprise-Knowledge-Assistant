@@ -25,7 +25,7 @@ from retrieval.models import (
     UserContext,
 )
 from retrieval.rerank import rerank_chunks
-from retrieval.tracing import keep_query_inputs
+from retrieval.tracing import RETRIEVER_TRACE_OPTIONS
 
 logger = structlog.get_logger()
 
@@ -56,7 +56,7 @@ class DocumentSearchService:
         self._circuit_breaker = circuit_breaker
         self._limits = limits
 
-    @traceable(run_type="retriever", name="document_search", process_inputs=keep_query_inputs)
+    @traceable(name="document_search", **RETRIEVER_TRACE_OPTIONS)
     async def search(
         self,
         query_text: str,

@@ -15,7 +15,7 @@ from config.settings import ChunkingLimits
 from ingestion.chunk import DocumentChunk, chunk_document, load_documents
 from retrieval.filters import is_access_allowed
 from retrieval.models import DocumentFilters, RetrievedChunk, SparseEncoder, UserContext
-from retrieval.tracing import keep_query_inputs
+from retrieval.tracing import RETRIEVER_TRACE_OPTIONS
 
 
 def _matches_filters(chunk: DocumentChunk, document_filters: DocumentFilters) -> bool:
@@ -72,7 +72,7 @@ class LocalKeywordIndex:
         sparse_vector = self._sparse_encoder.encode_documents(chunk.text_for_embedding())
         return dict(zip(sparse_vector["indices"], sparse_vector["values"], strict=True))
 
-    @traceable(run_type="retriever", name="local_keyword_search", process_inputs=keep_query_inputs)
+    @traceable(name="local_keyword_search", **RETRIEVER_TRACE_OPTIONS)
     def search(
         self,
         query_text: str,

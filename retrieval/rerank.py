@@ -12,12 +12,12 @@ from langsmith import traceable
 
 from ingestion.chunk import build_text_with_context
 from retrieval.models import RetrievedChunk, SearchBackend
-from retrieval.tracing import keep_query_inputs
+from retrieval.tracing import RETRIEVER_TRACE_OPTIONS
 
 logger = structlog.get_logger()
 
 
-@traceable(run_type="retriever", name="rerank_chunks", process_inputs=keep_query_inputs)
+@traceable(name="rerank_chunks", **RETRIEVER_TRACE_OPTIONS)
 async def rerank_chunks(
     query_text: str,
     chunks: list[RetrievedChunk],

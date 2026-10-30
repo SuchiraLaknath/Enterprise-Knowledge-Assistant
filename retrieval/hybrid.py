@@ -12,7 +12,7 @@ from pinecone_text.sparse import BM25Encoder
 
 from config.settings import RetrievalLimits
 from retrieval.models import RetrievedChunk, SearchBackend, SparseEncoder
-from retrieval.tracing import keep_query_inputs
+from retrieval.tracing import RETRIEVER_TRACE_OPTIONS
 
 logger = structlog.get_logger()
 
@@ -62,7 +62,7 @@ def scale_hybrid_vectors(
     return scaled_dense_vector, scaled_sparse_vector
 
 
-@traceable(run_type="retriever", name="hybrid_search", process_inputs=keep_query_inputs)
+@traceable(name="hybrid_search", **RETRIEVER_TRACE_OPTIONS)
 async def hybrid_search(
     query_text: str,
     namespaces: tuple[str, ...],
