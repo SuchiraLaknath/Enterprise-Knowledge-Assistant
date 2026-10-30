@@ -1,8 +1,24 @@
 """Typed records and interfaces shared by the retrieval modules and the agents."""
 
+from enum import StrEnum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class DegradedReason(StrEnum):
+    """Every way a search can fall short, recorded so the UI can show it to the user."""
+
+    # Pinecone failed on this request.
+    PINECONE_UNAVAILABLE = "pinecone_unavailable"
+    # Recent failures opened the circuit breaker, so Pinecone was not called.
+    PINECONE_CIRCUIT_OPEN = "pinecone_circuit_open"
+    # The results came from local keyword search, so recall is lower.
+    LOCAL_KEYWORD_SEARCH = "local_keyword_search"
+    # One department could not be searched. The namespace name is appended after a colon.
+    NAMESPACE_UNAVAILABLE = "namespace_unavailable"
+    # Reranking failed, so results keep their hybrid order.
+    RERANK_UNAVAILABLE = "rerank_unavailable"
 
 
 class UserContext(BaseModel):
@@ -66,7 +82,7 @@ class SearchResult(BaseModel):
     """The outcome of a search, including how it was produced."""
 
     chunks: list[RetrievedChunk]
-    # Names of the fallbacks used, so that the UI can show when an answer is degraded.
+    # Values from `DegradedReason`, so that the UI can show when an answer is degraded.
     degraded: list[str] = Field(default_factory=list)
     dense_weight: float | None = None
 

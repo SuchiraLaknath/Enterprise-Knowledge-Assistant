@@ -48,6 +48,14 @@ OLDER_INCIDENT_ROOT_CAUSES = (
 RECENT_INCIDENT_MINIMUM_AGE_IN_DAYS = 12
 RECENT_INCIDENT_MAXIMUM_AGE_IN_DAYS = 350
 
+# Plausible ranges for the invented incident figures.
+OUTAGE_MINUTES_RANGE = (18, 240)
+FAILED_TRANSACTIONS_RANGE = (800, 42000)
+
+# Non-payment incidents are spaced out, starting a few weeks before the reference date.
+FIRST_NON_PAYMENT_INCIDENT_AGE_IN_DAYS = 50
+DAYS_BETWEEN_NON_PAYMENT_INCIDENTS = 30
+
 # Every fifth incident is confidential and every twelfth is restricted, so that users with
 # different roles receive visibly different research results.
 CONFIDENTIAL_INCIDENT_INTERVAL = 5
@@ -119,8 +127,8 @@ def _build_payment_incident(
     service = random_source.choice(PAYMENT_SERVICES)
     created_date = CORPUS_REFERENCE_DATE - timedelta(days=age_in_days)
     doc_id = f"INC-{created_date.year}-{incident_number:03d}"
-    outage_minutes = random_source.randint(18, 240)
-    failed_transactions = random_source.randint(800, 42000)
+    outage_minutes = random_source.randint(*OUTAGE_MINUTES_RANGE)
+    failed_transactions = random_source.randint(*FAILED_TRANSACTIONS_RANGE)
 
     # The phrases below read as one report, and the seeded choice varies them between incidents.
     detection_signal = random_source.choice(profile.detection_signals)
@@ -190,6 +198,7 @@ def _plan_payment_incidents(random_source: random.Random) -> list[tuple[str, int
     ]
     random_source.shuffle(recent_root_causes)
 
+    # Equal spacing puts incidents across the whole year, with none on the same day.
     age_range = RECENT_INCIDENT_MAXIMUM_AGE_IN_DAYS - RECENT_INCIDENT_MINIMUM_AGE_IN_DAYS
     days_between_incidents = age_range // (len(recent_root_causes) - 1)
     planned_incidents = [
@@ -204,8 +213,11 @@ def _plan_payment_incidents(random_source: random.Random) -> list[tuple[str, int
 def _build_non_payment_incidents() -> list[GeneratedDocument]:
     """Write the few non-payment incidents, which should not surface in payment research."""
     documents = []
-    for position, (department, title, cause) in enumerate(NON_PAYMENT_INCIDENTS, start=1):
-        created_date = CORPUS_REFERENCE_DATE - timedelta(days=20 + position * 30)
+    for position, (department, title, cause) in enumerate(NON_PAYMENT_INCIDENTS):
+        age_in_days = (
+            FIRST_NON_PAYMENT_INCIDENT_AGE_IN_DAYS + position * DAYS_BETWEEN_NON_PAYMENT_INCIDENTS
+        )
+        created_date = CORPUS_REFERENCE_DATE - timedelta(days=age_in_days)
         sections = [
             (
                 "Summary",
@@ -231,7 +243,7 @@ def _build_non_payment_incidents() -> list[GeneratedDocument]:
         ]
         documents.append(
             GeneratedDocument(
-                doc_id=f"INC-OPS-{position:03d}",
+                doc_id=f"INC-OPS-{position + 1:03d}",
                 title=title,
                 department=department,
                 document_type="incident",

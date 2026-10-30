@@ -10,6 +10,7 @@ import asyncio
 import structlog
 from langsmith import traceable
 
+from ingestion.chunk import build_text_with_context
 from retrieval.models import RetrievedChunk, SearchBackend
 from retrieval.tracing import keep_query_inputs
 
@@ -28,8 +29,9 @@ async def rerank_chunks(
     if not chunks:
         return []
 
-    # Title and section add context that the chunk text alone may lack.
-    document_texts = [f"{chunk.title} > {chunk.section}\n{chunk.text}" for chunk in chunks]
+    document_texts = [
+        build_text_with_context(chunk.title, chunk.section, chunk.text) for chunk in chunks
+    ]
     reranked_positions = await asyncio.wait_for(
         backend.rerank(query_text, document_texts, result_count), timeout=timeout_seconds
     )

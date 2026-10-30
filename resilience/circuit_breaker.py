@@ -1,7 +1,7 @@
 """Circuit breaker: stop calling a service that keeps failing, and retry it after a pause.
 
 Without this, every request would wait for a timeout from a service that is already down.
-Pinecone uses it now, and the LLM gateway uses one breaker per provider.
+It knows nothing about any one service, so it can guard any dependency.
 """
 
 import time
@@ -34,8 +34,9 @@ class CircuitBreaker:
     def allows_request(self) -> bool:
         """Return True if the service may be called.
 
-        After the recovery pause this returns True again, so that one real request can test
-        whether the service is back. A failure of that request reopens the breaker.
+        After the recovery pause this returns True for every caller, so concurrent requests
+        may all try a service that is still down. This keeps the code simple, and the cost
+        is small: the failure count is not reset, so the first failure reopens the breaker.
         """
         return not self.is_open
 

@@ -108,6 +108,7 @@ async def hybrid_search(
     failed_namespaces: list[str] = []
     last_failure: BaseException | None = None
     for namespace, namespace_result in zip(namespaces, namespace_results, strict=True):
+        # gather returns failures as values, typed BaseException because of cancellation.
         if isinstance(namespace_result, BaseException):
             failed_namespaces.append(namespace)
             last_failure = namespace_result
@@ -117,6 +118,7 @@ async def hybrid_search(
         else:
             merged_chunks.extend(namespace_result)
 
+    # With nothing to merge, re-raise so that the caller can use the local fallback.
     if last_failure is not None and len(failed_namespaces) == len(namespaces):
         raise last_failure
 

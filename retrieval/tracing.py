@@ -1,4 +1,8 @@
-"""Helpers that keep LangSmith traces readable."""
+"""Choose which retrieval inputs appear in LangSmith traces.
+
+This is an allow-list, so a new parameter stays out of traces until it is named here. The
+agent nodes add `user_id`, `role` and `thread_id` as run metadata.
+"""
 
 from typing import Any
 

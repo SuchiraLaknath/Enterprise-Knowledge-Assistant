@@ -19,7 +19,7 @@ from retrieval.tracing import keep_query_inputs
 
 
 def _matches_filters(chunk: DocumentChunk, document_filters: DocumentFilters) -> bool:
-    """Apply the same narrowing that the Pinecone metadata filter applies."""
+    """Apply the same narrowing as `build_metadata_filter`, so the two must change together."""
     if (
         document_filters.document_types
         and chunk.document_type not in document_filters.document_types
@@ -39,7 +39,11 @@ def _matches_filters(chunk: DocumentChunk, document_filters: DocumentFilters) ->
 
 
 class LocalKeywordIndex:
-    """All chunks in memory, each with its BM25 document vector."""
+    """All chunks in memory, each with its BM25 document vector.
+
+    A department name is the same as its Pinecone namespace, so `namespaces` selects
+    departments here.
+    """
 
     def __init__(self, chunks: list[DocumentChunk], sparse_encoder: SparseEncoder) -> None:
         """Encode every chunk once, so that searching only needs a score calculation."""
@@ -93,6 +97,7 @@ class LocalKeywordIndex:
                 query_weight * term_weights.get(term, 0.0)
                 for term, query_weight in query_term_weights.items()
             )
+            # A score of 0 means that no query term occurs in the chunk.
             if score > 0:
                 scored_chunks.append(RetrievedChunk(score=score, **asdict(chunk)))
 

@@ -129,12 +129,14 @@ def upsert_records(
     encoder: BM25Encoder,
 ) -> None:
     """Write records to the namespace of each chunk's department."""
+    # Step 1: build the records, grouped by department, which is also the namespace.
     records_by_namespace: dict[str, list[dict[str, Any]]] = {}
     for chunk, dense_values in zip(chunks, dense_vectors, strict=True):
         sparse_vector = encoder.encode_documents(chunk.text_for_embedding())
         record = build_vector_record(chunk, dense_values, sparse_vector)
         records_by_namespace.setdefault(chunk.department, []).append(record)
 
+    # Step 2: send each namespace in batches.
     index = pinecone_client.Index(index_name)
     batch_size = get_limits().indexing.upsert_batch_size
     for namespace, records in records_by_namespace.items():
@@ -156,7 +158,8 @@ def run_indexing() -> None:
     ]
     logger.info("corpus_chunked", document_count=len(documents), chunk_count=len(chunks))
 
-    # Step 2: write the query-time files before any network call that might fail.
+    # Step 2: write the query-time files first, so that a failed upload still leaves the
+    # local fallback usable.
     encoder = fit_bm25_encoder(chunks, BM25_PARAMETERS_PATH)
     catalog = build_document_catalog(chunks)
     DOCUMENT_CATALOG_PATH.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")

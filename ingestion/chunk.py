@@ -17,6 +17,14 @@ FRONT_MATTER_PATTERN = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 HEADING_PATTERN = re.compile(r"^(#{1,6}) +(.+)$")
 
 
+def build_text_with_context(title: str, section: str, text: str) -> str:
+    """Prefix text with its title and section, so that it matches by topic as well.
+
+    Embedding, BM25 and reranking all use this, so that they judge the same text.
+    """
+    return f"{title} > {section}\n{text}"
+
+
 @dataclass(frozen=True)
 class SourceDocument:
     """A document read from disk: its front-matter fields and its Markdown body."""
@@ -48,8 +56,8 @@ class DocumentChunk:
     text: str
 
     def text_for_embedding(self) -> str:
-        """Return the text to encode, with its context, so that chunks match by topic as well."""
-        return f"{self.title} > {self.section}\n{self.text}"
+        """Return the text to encode, with its title and section."""
+        return build_text_with_context(self.title, self.section, self.text)
 
 
 @dataclass(frozen=True)
@@ -133,19 +141,30 @@ def _split_long_section(
     ]
 
 
+def _can_join(
+    previous_piece: _SectionPiece,
+    piece: _SectionPiece,
+    minimum_words: int,
+    maximum_words: int,
+) -> bool:
+    """Return True if the previous piece is still too small and the pair would fit."""
+    combined_word_count = len(previous_piece.words) + len(piece.words)
+    return len(previous_piece.words) < minimum_words and combined_word_count <= maximum_words
+
+
 def _merge_small_pieces(
     pieces: list[_SectionPiece], minimum_words: int, maximum_words: int
 ) -> list[_SectionPiece]:
-    """Join neighbouring pieces until each reaches the minimum, without passing the maximum."""
+    """Join neighbouring pieces until each reaches the minimum, without passing the maximum.
+
+    A joined piece names both sections, for example "Customer impact; Root cause".
+    """
     merged_pieces: list[_SectionPiece] = []
     for piece in pieces:
         previous_piece = merged_pieces[-1] if merged_pieces else None
-        can_join_previous = (
-            previous_piece is not None
-            and len(previous_piece.words) < minimum_words
-            and len(previous_piece.words) + len(piece.words) <= maximum_words
-        )
-        if previous_piece is None or not can_join_previous:
+        if previous_piece is None or not _can_join(
+            previous_piece, piece, minimum_words, maximum_words
+        ):
             merged_pieces.append(piece)
             continue
 
@@ -154,6 +173,11 @@ def _merge_small_pieces(
             joined_path = f"{joined_path}; {piece.section_path}"
         merged_pieces[-1] = _SectionPiece(joined_path, previous_piece.words + piece.words)
     return merged_pieces
+
+
+def _to_utc_midnight_timestamp(day: date) -> int:
+    """Return a date as epoch seconds, because Pinecone range filters need numbers."""
+    return int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp())
 
 
 def chunk_document(document: SourceDocument, limits: ChunkingLimits) -> list[DocumentChunk]:
@@ -172,16 +196,10 @@ def chunk_document(document: SourceDocument, limits: ChunkingLimits) -> list[Doc
     merged_pieces = _merge_small_pieces(pieces, minimum_words, maximum_words)
 
     # Step 3: repeat the end of each chunk at the start of the next, then add metadata.
-    created_ts = int(
-        datetime(
-            document.created_date.year,
-            document.created_date.month,
-            document.created_date.day,
-            tzinfo=UTC,
-        ).timestamp()
-    )
+    created_ts = _to_utc_midnight_timestamp(document.created_date)
     chunks = []
     for chunk_number, piece in enumerate(merged_pieces):
+        # Overlap crosses section boundaries on purpose, so that context carries over.
         overlap = merged_pieces[chunk_number - 1].words[-overlap_words:] if chunk_number else []
         chunks.append(
             DocumentChunk(

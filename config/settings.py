@@ -14,8 +14,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 CONFIG_DIRECTORY = Path(__file__).parent
 PROJECT_ROOT = CONFIG_DIRECTORY.parent
 
+# The Markdown corpus, written by `ingestion/generate_docs.py`.
 DOCUMENTS_DIRECTORY = PROJECT_ROOT / "data" / "docs"
+# BM25 word statistics, written by `ingestion/index.py` and read when encoding queries.
 BM25_PARAMETERS_PATH = PROJECT_ROOT / "data" / "bm25_params.json"
+# One summary per document, written by `ingestion/index.py` for the research planner.
 DOCUMENT_CATALOG_PATH = PROJECT_ROOT / "data" / "doc_catalog.json"
 
 
@@ -47,6 +50,7 @@ class ChunkingLimits(BaseModel):
 class IndexingLimits(BaseModel):
     """Batch sizes and location for writing to Pinecone."""
 
+    # Pinecone Inference accepts at most 96 inputs per call.
     embedding_batch_size: int = Field(gt=0, le=96)
     upsert_batch_size: int = Field(gt=0)
     cloud: str
@@ -99,7 +103,8 @@ def _read_yaml_file(file_name: str) -> dict[str, object]:
 @lru_cache
 def get_environment_settings() -> EnvironmentSettings:
     """Return the environment settings, read once per process."""
-    return EnvironmentSettings()  # type: ignore[call-arg]  # pydantic fills fields from the env.
+    # Pydantic fills the required fields from the environment, which mypy cannot see.
+    return EnvironmentSettings()  # type: ignore[call-arg]
 
 
 @lru_cache
