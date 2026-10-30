@@ -2,6 +2,7 @@
 
 chunking:
   # Chunks below this size are merged with their neighbour, so that a chunk holds a full idea.
+  # A document's last chunk, or one whose neighbour is too large to join, may stay smaller.
   min_tokens: 300
   # Chunks above this size are split, so that the reranker and prompts stay focused.
   max_tokens: 600
