@@ -1,7 +1,15 @@
+from pathlib import Path
+
 import pytest
 
 from config.settings import get_limits
-from retrieval.hybrid import choose_dense_weight, hybrid_search, scale_hybrid_vectors
+from retrieval import hybrid as hybrid_module
+from retrieval.hybrid import (
+    choose_dense_weight,
+    hybrid_search,
+    load_bm25_encoder,
+    scale_hybrid_vectors,
+)
 from tests.fakes.fake_search import FakeSearchBackend, FakeSparseEncoder, make_chunk
 
 LIMITS = get_limits().retrieval
@@ -90,3 +98,18 @@ async def test_query_with_no_sparse_terms_sends_no_sparse_vector():
     await run_search(backend, query_text="", namespaces=("payments",))
 
     assert backend.received_sparse_vectors == [None]
+
+
+def test_missing_tokenizer_data_fails_clearly_instead_of_downloading(monkeypatch):
+    # Rule 6: BM25Encoder would otherwise download this data from GitHub when created.
+    def report_missing_data(data_path):
+        raise LookupError(data_path)
+
+    def fail_if_encoder_is_created():
+        pytest.fail("BM25Encoder must not be created without its tokenizer data.")
+
+    monkeypatch.setattr(hybrid_module.nltk.data, "find", report_missing_data)
+    monkeypatch.setattr(hybrid_module, "BM25Encoder", fail_if_encoder_is_created)
+
+    with pytest.raises(RuntimeError, match="nltk.downloader"):
+        load_bm25_encoder(Path("unused.json"))

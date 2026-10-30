@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import nltk
 import structlog
 from langsmith import traceable
 from pinecone_text.sparse import BM25Encoder
@@ -15,6 +16,9 @@ from retrieval.models import RetrievedChunk, SearchBackend, SparseEncoder
 from retrieval.tracing import RETRIEVER_TRACE_OPTIONS
 
 logger = structlog.get_logger()
+
+# Tokenizer data that BM25Encoder would otherwise download when it is created.
+REQUIRED_TOKENIZER_DATA = ("tokenizers/punkt_tab", "corpora/stopwords")
 
 # Matches identifiers such as ERR-PAY-5041, INC-2026-014, RB-003 and ISO8583.
 IDENTIFIER_PATTERN = re.compile(r"\b[a-z]{2,}(?:-[a-z0-9]+)*-?\d+\b", re.IGNORECASE)
@@ -29,8 +33,21 @@ class HybridSearchOutcome:
     failed_namespaces: list[str]
 
 
+def _confirm_tokenizer_data_is_installed() -> None:
+    """Fail at startup if data is missing, because Rule 6 forbids a download at runtime."""
+    for data_path in REQUIRED_TOKENIZER_DATA:
+        try:
+            nltk.data.find(data_path)
+        except LookupError as error:
+            raise RuntimeError(
+                f"Missing tokenizer data {data_path}. Install it before starting: "
+                "uv run python -m nltk.downloader punkt_tab stopwords"
+            ) from error
+
+
 def load_bm25_encoder(parameters_path: Path) -> BM25Encoder:
     """Load the word statistics fitted on this corpus during indexing."""
+    _confirm_tokenizer_data_is_installed()
     encoder = BM25Encoder()
     encoder.load(str(parameters_path))
     return encoder
