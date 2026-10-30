@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.dependencies import AgentDependencies
-from agent.graph import build_agent_graph
+from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.nodes.response_agent import DEGRADED_EXTRACTIVE, format_evidence_documents
 from agent.nodes.supervisor import DEGRADED_NO_PLAN
 from retrieval.models import SearchResult, UserContext
@@ -59,7 +59,7 @@ def started_nodes(events):
 
 @pytest.fixture
 def graph():
-    return build_agent_graph(InMemorySaver())
+    return build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer()))
 
 
 async def test_a_document_question_runs_plan_retrieve_answer_in_order(graph):

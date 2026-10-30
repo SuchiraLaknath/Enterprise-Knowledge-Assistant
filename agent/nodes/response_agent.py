@@ -23,6 +23,7 @@ from agent.schemas import Citation
 from agent.state import AgentState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
 from retrieval.models import RetrievedChunk
+from security.output_guard import remove_markdown_images
 from security.stream_masker import StreamMasker, mask_sensitive_text
 
 NODE_NAME = "response_agent"
@@ -158,8 +159,8 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
         answer = build_extractive_answer(evidence)
         degraded.append(DEGRADED_EXTRACTIVE)
 
-    # Step 2: mask the complete text, and link its citations to the evidence.
-    final_answer = mask_sensitive_text(answer)
+    # Step 2: clean the complete text, and link its citations to the evidence.
+    final_answer = remove_markdown_images(mask_sensitive_text(answer))
     citations = extract_citations(final_answer, evidence)
 
     # Step 3: only now does the answer join the conversation (rule 9).

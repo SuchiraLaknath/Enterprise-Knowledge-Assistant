@@ -7,6 +7,7 @@ research, tools, approval, validation and memory nodes shown in `docs/ARCHITECTU
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -18,6 +19,20 @@ from agent.nodes.supervisor import choose_next_node, supervisor
 from agent.state import AgentState
 
 AgentGraph = CompiledStateGraph[AgentState, AgentDependencies, AgentState, AgentState]
+
+# The only application types a checkpoint may rebuild. Loading a checkpoint can create objects,
+# so naming them stops a tampered checkpoint from creating anything else.
+CHECKPOINT_TYPES = (
+    ("agent.schemas", "Citation"),
+    ("agent.schemas", "Plan"),
+    ("retrieval.models", "RetrievedChunk"),
+    ("retrieval.models", "UserContext"),
+)
+
+
+def create_checkpoint_serializer() -> JsonPlusSerializer:
+    """Return the serializer for checkpoints, limited to the application's own types."""
+    return JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_TYPES)
 
 
 def build_agent_graph(checkpointer: BaseCheckpointSaver[Any]) -> AgentGraph:
