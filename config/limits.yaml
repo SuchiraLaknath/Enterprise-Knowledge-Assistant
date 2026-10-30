@@ -41,3 +41,19 @@ circuit_breaker:
   failure_threshold: 5
   # Seconds to wait before trying the failing service again.
   recovery_seconds: 30.0
+
+llm:
+  # Seconds allowed for one model to finish, before the gateway tries the next model.
+  attempt_timeout_s: 45.0
+  # Seconds allowed across all models on a route, so that a full outage stays bounded.
+  route_deadline_s: 90.0
+  # Retries inside one model. Kept low, because the gateway's next model is the better retry.
+  max_retries_per_model: 1
+  # Longest reply for a structured output, such as a plan.
+  structured_max_tokens: 2000
+  # Longest reply for a final answer.
+  answer_max_tokens: 4000
+
+conversation:
+  # Recent messages sent to the model each turn. Older turns move to the summary in step 10.
+  history_message_count: 10

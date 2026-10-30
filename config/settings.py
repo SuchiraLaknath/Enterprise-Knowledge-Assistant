@@ -4,6 +4,7 @@ Secrets come from the environment, and tunable values come from `config/*.yaml`.
 build step adds the settings it needs here.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -29,6 +30,19 @@ class EnvironmentSettings(BaseSettings):
 
     pinecone_api_key: SecretStr
     pinecone_index: str
+    # The gateway skips a provider with no key, and refuses to start without Anthropic.
+    anthropic_api_key: SecretStr = SecretStr("")
+    openai_api_key: SecretStr = SecretStr("")
+    groq_api_key: SecretStr = SecretStr("")
+    langsmith_api_key: SecretStr = SecretStr("")
+    langsmith_tracing: str = "false"
+    langsmith_project: str = "enterprise-knowledge-assistant"
+    # Empty by default, so that unit tests need no secret. The API refuses to start without it.
+    jwt_secret: SecretStr = SecretStr("")
+    database_url: str = ""
+    redis_url: str = ""
+    mcp_url: str = ""
+    api_url: str = "http://localhost:8000"
     # Comma-separated names of clients to fail on purpose, for the degradation demo.
     faults: str = ""
 
@@ -36,6 +50,17 @@ class EnvironmentSettings(BaseSettings):
     def enabled_faults(self) -> set[str]:
         """Return the fault names, so callers can test membership instead of parsing text."""
         return {fault.strip() for fault in self.faults.split(",") if fault.strip()}
+
+
+def export_tracing_settings(settings: EnvironmentSettings) -> None:
+    """Copy LangSmith settings into the process environment.
+
+    Pydantic reads `.env` without exporting it, but LangSmith reads only the environment, so
+    without this step tracing would be silently off.
+    """
+    os.environ["LANGSMITH_TRACING"] = settings.langsmith_tracing
+    os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+    os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key.get_secret_value()
 
 
 class ChunkingLimits(BaseModel):
@@ -76,6 +101,22 @@ class CircuitBreakerLimits(BaseModel):
     recovery_seconds: float = Field(gt=0)
 
 
+class LlmLimits(BaseModel):
+    """Bounds on LLM calls, so that a failing model cannot hold a request open."""
+
+    attempt_timeout_s: float = Field(gt=0)
+    route_deadline_s: float = Field(gt=0)
+    max_retries_per_model: int = Field(ge=0)
+    structured_max_tokens: int = Field(gt=0)
+    answer_max_tokens: int = Field(gt=0)
+
+
+class ConversationLimits(BaseModel):
+    """How much of a conversation is sent back to the model."""
+
+    history_message_count: int = Field(gt=0)
+
+
 class Limits(BaseModel):
     """All operational limits from `config/limits.yaml`."""
 
@@ -83,6 +124,8 @@ class Limits(BaseModel):
     indexing: IndexingLimits
     retrieval: RetrievalLimits
     circuit_breaker: CircuitBreakerLimits
+    llm: LlmLimits
+    conversation: ConversationLimits
 
 
 class ModelNames(BaseModel):
@@ -91,6 +134,8 @@ class ModelNames(BaseModel):
     embedding_model: str
     embedding_dimension: int = Field(gt=0)
     rerank_model: str
+    # Maps a route name to its ordered model chain, such as "anthropic:claude-sonnet-5-5".
+    llm_routes: dict[str, list[str]]
 
 
 def _read_yaml_file(file_name: str) -> dict[str, object]:
