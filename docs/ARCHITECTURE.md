@@ -136,7 +136,7 @@ The activity panel shows the generated plan, the batches, the recursion depth, a
 | Tools | Filtered at model binding, re-checked before execution, data filtered server-side |
 | Retrieved text | Wrapped in document delimiters, and scanned by `content_guard` |
 | Generated code | AST whitelist, restricted helpers, CPU limit, no imports |
-| Output | Masked live draft, then `validator` and `output_guard` before the final answer |
+| Output | Masked live draft, then `validator` and `output_guard` before the final answer, which keeps no web addresses |
 | Memory | Doc ids only, namespaced by user, and scanned for injection |
 
 The draft shown during streaming is provisional. It is masked and rendered as plain text, because rendering markdown would let an injected image URL send data out before validation runs.
@@ -168,7 +168,7 @@ Each failure is contained where it occurs, recorded in `state["degraded"]`, and 
 
 ## Observability
 
-Every conversation, agent transition, tool call and retrieval operation is traced in LangSmith, with `user_id`, `role` and `thread_id` as run metadata. The same steps stream to the activity panel as typed events, and the final event links to the trace. Logs are structured JSON and never contain tokens, JWTs or document text.
+Every conversation, agent transition, tool call and retrieval operation is traced in LangSmith, with `user_id`, `role` and `thread_id` as run metadata. The same steps stream to the activity panel as typed events, and a `trace` event follows each answer with a link to its trace. Traces show the structure of a turn and which chunks were used, but document text is redacted before it leaves the process. Logs are structured JSON and never contain tokens, JWTs or document text.
 
 ## Decisions
 

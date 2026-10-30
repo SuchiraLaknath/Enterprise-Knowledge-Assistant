@@ -21,6 +21,7 @@ from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import LlmGateway
 from api.routes import auth, chat
 from api.services import ApplicationServices
+from api.tracing import configure_redacted_tracing
 from config.settings import (
     BM25_PARAMETERS_PATH,
     DOCUMENTS_DIRECTORY,
@@ -39,6 +40,9 @@ from retrieval.search import DocumentSearchService
 
 logger = structlog.get_logger()
 
+# Shorter secrets can be guessed offline from a captured token, which would forge any login.
+MINIMUM_JWT_SECRET_BYTES = 32
+
 
 def configure_logging() -> None:
     """Write structured JSON logs, including the ids bound to each request."""
@@ -55,9 +59,9 @@ def configure_logging() -> None:
 
 
 def require_startup_secrets(settings: EnvironmentSettings) -> None:
-    """Refuse to start without secrets, because an empty JWT secret would accept forged tokens."""
-    if not settings.jwt_secret.get_secret_value():
-        raise RuntimeError("JWT_SECRET must be set. Generate one with: openssl rand -hex 32")
+    """Refuse to start without secrets, because a weak JWT secret would allow forged tokens."""
+    if len(settings.jwt_secret.get_secret_value().encode()) < MINIMUM_JWT_SECRET_BYTES:
+        raise RuntimeError("JWT_SECRET is too short. Generate one: openssl rand -hex 32")
     if not settings.anthropic_api_key.get_secret_value():
         raise RuntimeError("ANTHROPIC_API_KEY must be set.")
     if not settings.database_url:
@@ -83,6 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_environment_settings()
     require_startup_secrets(settings)
     export_tracing_settings(settings)
+    configure_redacted_tracing()
     limits = get_limits()
     model_names = get_model_names()
 
