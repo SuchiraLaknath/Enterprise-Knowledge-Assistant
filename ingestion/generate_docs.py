@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from config.settings import PROJECT_ROOT
+from config.settings import DOCUMENTS_DIRECTORY
 from ingestion.corpus_content import (
     DOCUMENT_BRIEFS,
     EXTENDED_SECTION_TEMPLATES,
@@ -25,8 +25,6 @@ from ingestion.corpus_content import (
     DocumentBrief,
     RootCauseProfile,
 )
-
-DOCUMENTS_DIRECTORY = PROJECT_ROOT / "data" / "docs"
 
 # A fixed seed and date keep the corpus identical on every run.
 RANDOM_SEED = 2026

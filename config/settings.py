@@ -14,6 +14,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 CONFIG_DIRECTORY = Path(__file__).parent
 PROJECT_ROOT = CONFIG_DIRECTORY.parent
 
+DOCUMENTS_DIRECTORY = PROJECT_ROOT / "data" / "docs"
+BM25_PARAMETERS_PATH = PROJECT_ROOT / "data" / "bm25_params.json"
+DOCUMENT_CATALOG_PATH = PROJECT_ROOT / "data" / "doc_catalog.json"
+
 
 class EnvironmentSettings(BaseSettings):
     """Values that differ per machine or are secret, loaded from the environment or `.env`."""
@@ -50,8 +54,9 @@ class IndexingLimits(BaseModel):
 
 
 class RetrievalLimits(BaseModel):
-    """Score weights, result counts and timeouts for search."""
+    """Namespaces, score weights, result counts and timeouts for search."""
 
+    namespaces: tuple[str, ...] = Field(min_length=1)
     default_dense_weight: float = Field(ge=0, le=1)
     keyword_query_dense_weight: float = Field(ge=0, le=1)
     candidates_per_namespace: int = Field(gt=0)

@@ -21,6 +21,8 @@ indexing:
   region: us-east-1
 
 retrieval:
+  # Pinecone namespaces, one per department. A search covers these unless narrowed.
+  namespaces: [payments, platform, security, hr-policy, product]
   # Weight of the dense score for a natural-language query; the sparse score gets the remainder.
   default_dense_weight: 0.6
   # Weight of the dense score when a query holds ids or error codes, where exact terms matter more.

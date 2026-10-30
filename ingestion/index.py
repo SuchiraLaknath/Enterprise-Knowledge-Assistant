@@ -17,12 +17,15 @@ import structlog
 from pinecone import Pinecone, ServerlessSpec
 from pinecone_text.sparse import BM25Encoder
 
-from config.settings import PROJECT_ROOT, get_environment_settings, get_limits, get_model_names
+from config.settings import (
+    BM25_PARAMETERS_PATH,
+    DOCUMENT_CATALOG_PATH,
+    DOCUMENTS_DIRECTORY,
+    get_environment_settings,
+    get_limits,
+    get_model_names,
+)
 from ingestion.chunk import DocumentChunk, chunk_document, load_documents
-from ingestion.generate_docs import DOCUMENTS_DIRECTORY
-
-BM25_PARAMETERS_PATH = PROJECT_ROOT / "data" / "bm25_params.json"
-DOCUMENT_CATALOG_PATH = PROJECT_ROOT / "data" / "doc_catalog.json"
 
 logger = structlog.get_logger()
 
