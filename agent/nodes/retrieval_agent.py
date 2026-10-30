@@ -1,0 +1,69 @@
+"""`retrieval_agent`: find the evidence for the supervisor's plan.
+
+The plan can narrow a search, but access always comes from the verified user. This node passes
+`state["user"]` through untouched, and `DocumentSearchService` builds the access filter from it.
+"""
+
+import time
+from typing import Any
+
+from langgraph.runtime import Runtime
+
+from agent.dependencies import AgentDependencies
+from agent.schemas import Plan
+from agent.state import AgentState
+from api.events import EventType, emit_event, emit_node_finished, emit_node_started
+from retrieval.models import DocumentFilters
+
+NODE_NAME = "retrieval_agent"
+SECONDS_PER_DAY = 86_400
+
+
+def build_document_filters(plan: Plan) -> DocumentFilters:
+    """Turn the plan's narrowing into search filters. These can only reduce what is searched."""
+    created_after_ts = None
+    if plan.recent_days is not None:
+        created_after_ts = int(time.time()) - plan.recent_days * SECONDS_PER_DAY
+    return DocumentFilters(
+        document_types=tuple(plan.document_types), created_after_ts=created_after_ts
+    )
+
+
+async def retrieval_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
+    """Search for the planned query and return attributed evidence."""
+    emit_node_started(NODE_NAME)
+    plan = state["plan"]
+    if plan is None:
+        emit_node_finished(NODE_NAME)
+        return {"retrieval_finished": True}
+
+    search_result = await runtime.context.document_search.search(
+        plan.search_query,
+        state["user"],
+        build_document_filters(plan),
+        namespaces=tuple(plan.departments) or None,
+    )
+
+    emit_event(
+        EventType.RETRIEVAL,
+        query=plan.search_query,
+        departments=plan.departments or "all",
+        result_count=len(search_result.chunks),
+        dense_weight=search_result.dense_weight,
+        sources=[
+            {"chunk_id": chunk.chunk_id, "title": chunk.title, "score": round(chunk.score, 3)}
+            for chunk in search_result.chunks
+        ],
+        degraded=search_result.degraded,
+    )
+    emit_event(
+        EventType.STATE,
+        evidence_count=len(search_result.chunks),
+        degraded=search_result.degraded,
+    )
+    emit_node_finished(NODE_NAME)
+    return {
+        "evidence": search_result.chunks,
+        "degraded": search_result.degraded,
+        "retrieval_finished": True,
+    }
