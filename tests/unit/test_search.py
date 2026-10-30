@@ -2,7 +2,7 @@ from config.settings import get_limits
 from ingestion.chunk import DocumentChunk
 from resilience.circuit_breaker import CircuitBreaker
 from retrieval.bm25_fallback import LocalKeywordIndex
-from retrieval.models import DocumentFilters, UserContext
+from retrieval.models import DocumentFilters, RerankedPosition, UserContext
 from retrieval.search import DocumentSearchService
 from tests.fakes.fake_search import FakeSearchBackend, FakeSparseEncoder, make_chunk
 
@@ -54,6 +54,23 @@ async def test_search_returns_reranked_results_with_attribution():
     assert result.chunks[0].source_uri == "docs://payments/SECOND#c0"
     assert result.degraded == []
     assert result.dense_weight == LIMITS.default_dense_weight
+
+
+async def test_chunks_the_reranker_scores_as_unrelated_are_dropped():
+    class ScoringBackend(FakeSearchBackend):
+        async def rerank(self, query_text, document_texts, result_count):
+            return [
+                RerankedPosition(input_index=0, score=0.9),
+                RerankedPosition(input_index=1, score=0.003),
+            ]
+
+    backend = ScoringBackend(
+        {"payments": [make_chunk("RELEVANT#c0", score=0.9), make_chunk("NOISE#c0", score=0.5)]}
+    )
+
+    result = await make_service(backend).search("payment outage", VIEWER)
+
+    assert [chunk.chunk_id for chunk in result.chunks] == ["RELEVANT#c0"]
 
 
 async def test_research_searches_skip_the_reranker_to_protect_the_quota():

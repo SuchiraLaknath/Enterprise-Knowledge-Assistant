@@ -1,0 +1,8 @@
+# Document access levels of each role. Rule 1: the API reads this, and the LLM never does.
+roles:
+  # Everyday staff: public and internal documents.
+  viewer: [public, internal]
+  # Analysts also see confidential documents.
+  analyst: [public, internal, confidential]
+  # Administrators see everything.
+  admin: [public, internal, confidential, restricted]

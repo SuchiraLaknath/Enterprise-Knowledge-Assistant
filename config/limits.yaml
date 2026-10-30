@@ -29,6 +29,11 @@ retrieval:
   keyword_query_dense_weight: 0.3
   # Candidates fetched from each namespace before merging and reranking.
   candidates_per_namespace: 20
+  # Best hybrid results sent to the reranker. Reranking is slow, and the rest rarely win.
+  rerank_candidate_count: 30
+  # Reranked chunks below this score are dropped. Relevant chunks scored above 0.8 in live
+  # checks and unrelated ones near 0.003, and unrelated text only invites weak citations.
+  minimum_rerank_score: 0.02
   # Chunks returned to the agent after merging and reranking.
   final_result_count: 8
   # Seconds allowed for one call to embed text or to query a namespace.
@@ -57,3 +62,11 @@ llm:
 conversation:
   # Recent messages sent to the model each turn. Older turns move to the summary in step 10.
   history_message_count: 10
+
+api:
+  # Longest message accepted, which limits cost and the room for prompt injection.
+  max_message_length: 4000
+  # Minutes before a login expires.
+  token_lifetime_minutes: 60
+  # Steps a graph may take in one turn, which stops any runaway loop.
+  graph_recursion_limit: 25

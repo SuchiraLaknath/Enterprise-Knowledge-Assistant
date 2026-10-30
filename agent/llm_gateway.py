@@ -57,15 +57,32 @@ class GatewayResult[ResultValue]:
 class ChatModelFactory(Protocol):
     """Creates a chat model, so that tests can supply a fake."""
 
-    def __call__(self, model_spec: str, api_key: str, max_tokens: int, max_retries: int) -> Any:
+    def __call__(
+        self,
+        model_spec: str,
+        api_key: str,
+        max_tokens: int,
+        max_retries: int,
+        **provider_options: Any,
+    ) -> Any:
         """Return a LangChain chat model."""
         ...
 
 
-def create_chat_model(model_spec: str, api_key: str, max_tokens: int, max_retries: int) -> Any:
+def create_chat_model(
+    model_spec: str,
+    api_key: str,
+    max_tokens: int,
+    max_retries: int,
+    **provider_options: Any,
+) -> Any:
     """Create a LangChain chat model. This is the only place that does so."""
     return init_chat_model(
-        model_spec, api_key=api_key, max_tokens=max_tokens, max_retries=max_retries
+        model_spec,
+        api_key=api_key,
+        max_tokens=max_tokens,
+        max_retries=max_retries,
+        **provider_options,
     )
 
 
@@ -83,11 +100,13 @@ class LlmGateway:
         settings: EnvironmentSettings,
         llm_limits: LlmLimits,
         breaker_limits: CircuitBreakerLimits,
+        answer_effort: str,
         chat_model_factory: ChatModelFactory = create_chat_model,
     ) -> None:
         """Keep the routes and keys. A provider with no key is skipped, not treated as an error."""
         self._routes = routes
         self._limits = llm_limits
+        self._answer_effort = answer_effort
         self._enabled_faults = settings.enabled_faults
         self._chat_model_factory = chat_model_factory
         self._api_keys = {
@@ -116,14 +135,21 @@ class LlmGateway:
         if ALL_PROVIDERS_FAULT in self._enabled_faults or provider in self._enabled_faults:
             raise SimulatedLlmFaultError(f"Simulated {provider} failure from FAULTS")
 
-    def _create_model(self, model_spec: str, max_tokens: int) -> Any:
+    def _create_model(self, model_spec: str, max_tokens: int, **provider_options: Any) -> Any:
         """Create a client for one attempt, with its provider's key."""
         return self._chat_model_factory(
             model_spec,
             self._api_keys[_provider_of(model_spec)],
             max_tokens,
             self._limits.max_retries_per_model,
+            **provider_options,
         )
+
+    def _answer_options(self, model_spec: str) -> dict[str, Any]:
+        """Return the options for a streamed answer. Only Anthropic models take an effort."""
+        if _provider_of(model_spec) == "anthropic":
+            return {"output_config": {"effort": self._answer_effort}}
+        return {}
 
     def _attempt_timeout(self, deadline: float) -> float:
         """Return the seconds for one attempt, which may not pass the route's deadline."""
@@ -216,7 +242,9 @@ class LlmGateway:
 
             try:
                 self._raise_if_fault_enabled(_provider_of(model_spec))
-                chat_model = self._create_model(model_spec, self._limits.answer_max_tokens)
+                chat_model = self._create_model(
+                    model_spec, self._limits.answer_max_tokens, **self._answer_options(model_spec)
+                )
                 async with asyncio.timeout(self._attempt_timeout(deadline)):
                     full_text = await self._stream_one_model(chat_model, messages, forward_text)
             except Exception as error:  # Any failure means trying the next model.

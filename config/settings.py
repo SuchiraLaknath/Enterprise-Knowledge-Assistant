@@ -89,6 +89,8 @@ class RetrievalLimits(BaseModel):
     default_dense_weight: float = Field(ge=0, le=1)
     keyword_query_dense_weight: float = Field(ge=0, le=1)
     candidates_per_namespace: int = Field(gt=0)
+    rerank_candidate_count: int = Field(gt=0)
+    minimum_rerank_score: float = Field(ge=0, le=1)
     final_result_count: int = Field(gt=0)
     pinecone_timeout_s: float = Field(gt=0)
     rerank_timeout_s: float = Field(gt=0)
@@ -117,6 +119,14 @@ class ConversationLimits(BaseModel):
     history_message_count: int = Field(gt=0)
 
 
+class ApiLimits(BaseModel):
+    """Bounds on what one request can ask of the API."""
+
+    max_message_length: int = Field(gt=0)
+    token_lifetime_minutes: int = Field(gt=0)
+    graph_recursion_limit: int = Field(gt=0)
+
+
 class Limits(BaseModel):
     """All operational limits from `config/limits.yaml`."""
 
@@ -126,6 +136,7 @@ class Limits(BaseModel):
     circuit_breaker: CircuitBreakerLimits
     llm: LlmLimits
     conversation: ConversationLimits
+    api: ApiLimits
 
 
 class ModelNames(BaseModel):
@@ -134,6 +145,7 @@ class ModelNames(BaseModel):
     embedding_model: str
     embedding_dimension: int = Field(gt=0)
     rerank_model: str
+    answer_effort: str
     # Maps a route name to its ordered model chain, such as "anthropic:claude-sonnet-5-5".
     llm_routes: dict[str, list[str]]
 
@@ -143,6 +155,12 @@ def _read_yaml_file(file_name: str) -> dict[str, object]:
     with (CONFIG_DIRECTORY / file_name).open(encoding="utf-8") as yaml_file:
         parsed_content: dict[str, object] = yaml.safe_load(yaml_file)
     return parsed_content
+
+
+class RoleAccess(BaseModel):
+    """The document access levels of each role, from `config/rbac.yaml`."""
+
+    roles: dict[str, tuple[str, ...]]
 
 
 @lru_cache
@@ -162,3 +180,9 @@ def get_limits() -> Limits:
 def get_model_names() -> ModelNames:
     """Return the model identifiers, read once per process."""
     return ModelNames.model_validate(_read_yaml_file("models.yaml"))
+
+
+@lru_cache
+def get_role_access() -> RoleAccess:
+    """Return the access levels of each role, read once per process."""
+    return RoleAccess.model_validate(_read_yaml_file("rbac.yaml"))

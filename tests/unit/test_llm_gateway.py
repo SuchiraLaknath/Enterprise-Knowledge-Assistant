@@ -18,6 +18,9 @@ LLM_LIMITS = LlmLimits(
 BREAKER_LIMITS = CircuitBreakerLimits(failure_threshold=2, recovery_seconds=30.0)
 
 
+created_model_options: dict = {}
+
+
 class Reply(BaseModel):
     text: str
 
@@ -33,10 +36,11 @@ def make_gateway(models, faults="", openai_key="openai-key", breaker_limits=BREA
         faults=faults,
     )
 
-    def create_fake_model(model_spec, api_key, max_tokens, max_retries):
+    def create_fake_model(model_spec, api_key, max_tokens, max_retries, **provider_options):
+        created_model_options[model_spec] = provider_options
         return models[model_spec]
 
-    return LlmGateway(ROUTES, settings, LLM_LIMITS, breaker_limits, create_fake_model)
+    return LlmGateway(ROUTES, settings, LLM_LIMITS, breaker_limits, "low", create_fake_model)
 
 
 class TokenCollector:
@@ -176,6 +180,16 @@ async def test_a_refusal_moves_on_to_the_next_model():
     )
 
     assert result.model_spec == "anthropic:second"
+
+
+async def test_streamed_answers_ask_anthropic_for_the_configured_effort():
+    collector = TokenCollector()
+
+    await make_gateway(healthy_models()).stream_text(
+        "response", MESSAGES, collector.on_text, collector.on_draft_reset
+    )
+
+    assert created_model_options["anthropic:first"] == {"output_config": {"effort": "low"}}
 
 
 @pytest.mark.faults

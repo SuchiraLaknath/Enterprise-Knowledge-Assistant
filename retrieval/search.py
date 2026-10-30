@@ -149,7 +149,7 @@ class DocumentSearchService:
         try:
             reranked_chunks = await rerank_chunks(
                 query_text,
-                candidate_chunks,
+                candidate_chunks[: self._limits.rerank_candidate_count],
                 self._backend,
                 result_count,
                 self._limits.rerank_timeout_s,
@@ -157,4 +157,7 @@ class DocumentSearchService:
         except Exception as error:  # Hybrid order is a usable answer, so continue with it.
             logger.warning("rerank_failed", error=str(error))
             return hybrid_order_chunks, [DegradedReason.RERANK_UNAVAILABLE]
-        return reranked_chunks, []
+        relevant_chunks = [
+            chunk for chunk in reranked_chunks if chunk.score >= self._limits.minimum_rerank_score
+        ]
+        return relevant_chunks, []
