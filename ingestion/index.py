@@ -2,7 +2,8 @@
 
 This is an offline batch job, not part of the request path, so it uses the synchronous client.
 It also writes the two files the API needs at query time: the fitted BM25 parameters and the
-document catalog. Re-running is safe, because chunk ids are stable and upserts overwrite.
+document catalog. Each run replaces the whole index, because a record left over from an
+earlier run would keep the old access level of a document that has since been reclassified.
 
 Run with: uv run python -m ingestion.index
 """
@@ -121,6 +122,17 @@ def embed_chunks(pinecone_client: Pinecone, chunks: Sequence[DocumentChunk]) -> 
     return dense_vectors
 
 
+def clear_existing_records(index: Any) -> None:
+    """Delete every record, in every namespace, including any no longer in the config.
+
+    Rule 2: upserts only overwrite matching ids. If a reclassified document produces fewer
+    chunks, or moves department, its old records would stay searchable at the old level.
+    """
+    for namespace in index.describe_index_stats().namespaces:
+        index.delete(delete_all=True, namespace=namespace)
+        logger.info("namespace_cleared", namespace=namespace)
+
+
 def upsert_records(
     pinecone_client: Pinecone,
     index_name: str,
@@ -136,8 +148,11 @@ def upsert_records(
         record = build_vector_record(chunk, dense_values, sparse_vector)
         records_by_namespace.setdefault(chunk.department, []).append(record)
 
-    # Step 2: send each namespace in batches.
+    # Step 2: clear the old records only now, so that an encoding error leaves them intact.
     index = pinecone_client.Index(index_name)
+    clear_existing_records(index)
+
+    # Step 3: send each namespace in batches.
     batch_size = get_limits().indexing.upsert_batch_size
     for namespace, records in records_by_namespace.items():
         for record_batch in split_into_batches(records, batch_size):

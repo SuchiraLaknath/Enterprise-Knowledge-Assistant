@@ -7,6 +7,7 @@ Run with: uv run python -m ingestion.generate_docs
 """
 
 import random
+import shutil
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -293,7 +294,12 @@ def build_corpus() -> list[GeneratedDocument]:
 
 
 def write_corpus(documents: list[GeneratedDocument], target_directory: Path) -> None:
-    """Write each document to `<target_directory>/<department>/<doc_id>.md`."""
+    """Write each document to `<target_directory>/<department>/<doc_id>.md`.
+
+    The directory is emptied first, because this folder holds only generated files, and a
+    stale file from a moved document would return at its old access level.
+    """
+    shutil.rmtree(target_directory, ignore_errors=True)
     for document in documents:
         department_directory = target_directory / document.department
         department_directory.mkdir(parents=True, exist_ok=True)

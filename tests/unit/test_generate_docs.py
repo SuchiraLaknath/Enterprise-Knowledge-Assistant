@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 
-from ingestion.generate_docs import CORPUS_REFERENCE_DATE, build_corpus
+from ingestion.generate_docs import CORPUS_REFERENCE_DATE, build_corpus, write_corpus
 
 ONE_YEAR_AGO = CORPUS_REFERENCE_DATE - timedelta(days=365)
 MINIMUM_DOCUMENT_WORDS = 300
@@ -118,3 +118,15 @@ def test_every_document_has_enough_text_to_search(corpus):
 
 def test_markdown_starts_with_front_matter(corpus):
     assert corpus[0].to_markdown().startswith("---\ndoc_id:")
+
+
+def test_writing_removes_files_from_an_earlier_run(corpus, tmp_path):
+    # A stale file from a moved document would return at its old access level.
+    stale_file = tmp_path / "old-department" / "MOVED.md"
+    stale_file.parent.mkdir()
+    stale_file.write_text("stale")
+
+    write_corpus(corpus[:1], tmp_path)
+
+    assert not stale_file.exists()
+    assert len(list(tmp_path.rglob("*.md"))) == 1
