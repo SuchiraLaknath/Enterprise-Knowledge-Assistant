@@ -1,0 +1,8 @@
+# Model names. LLM routes are added with the LLM gateway in build step 4.
+
+# Pinecone Inference model that turns text into dense vectors.
+embedding_model: llama-text-embed-v2
+# Vector size of the embedding model. The Pinecone index must be created with this dimension.
+embedding_dimension: 1024
+# Pinecone Inference model that reorders retrieved chunks by relevance.
+rerank_model: bge-reranker-v2-m3

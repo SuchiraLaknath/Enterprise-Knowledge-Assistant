@@ -1,0 +1,16 @@
+# Local assessment material and Claude Code setup
+Lead AI Assignment.pdf
+CLAUDE.md
+.claude/
+
+# Secrets: only the empty template is tracked
+.env
+.env.*
+!.env.example
+
+# Python environment and tool caches
+.venv/
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/

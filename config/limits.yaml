@@ -1,0 +1,40 @@
+# Operational limits. Changing a value here needs no code change.
+
+chunking:
+  # Chunks below this size are merged with their neighbour, so that a chunk holds a full idea.
+  min_tokens: 300
+  # Chunks above this size are split, so that the reranker and prompts stay focused.
+  max_tokens: 600
+  # Share of a chunk repeated at the start of the next, so a sentence cut at a boundary survives.
+  overlap_fraction: 0.15
+  # Words are multiplied by this to estimate tokens, because exact tokenizers download data.
+  tokens_per_word: 1.3
+
+indexing:
+  # Pinecone Inference accepts at most 96 inputs in one embedding call.
+  embedding_batch_size: 96
+  # Records sent in one upsert request.
+  upsert_batch_size: 100
+  # Serverless location of the index. Available on the Pinecone Starter plan.
+  cloud: aws
+  region: us-east-1
+
+retrieval:
+  # Weight of the dense score for a natural-language query; the sparse score gets the remainder.
+  default_dense_weight: 0.6
+  # Weight of the dense score when a query holds ids or error codes, where exact terms matter more.
+  keyword_query_dense_weight: 0.3
+  # Candidates fetched from each namespace before merging and reranking.
+  candidates_per_namespace: 20
+  # Chunks returned to the agent after merging and reranking.
+  final_result_count: 8
+  # Seconds allowed for one call to embed text or to query a namespace.
+  pinecone_timeout_s: 5.0
+  # Seconds allowed for one rerank call.
+  rerank_timeout_s: 5.0
+
+circuit_breaker:
+  # Consecutive failures that open the breaker, which skips the failing service.
+  failure_threshold: 5
+  # Seconds to wait before trying the failing service again.
+  recovery_seconds: 30.0

@@ -1,0 +1,45 @@
+[project]
+name = "enterprise-knowledge-assistant"
+version = "0.1.0"
+description = "Multi-agent assistant that answers Commercial Bank staff questions with cited evidence."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "structlog>=24.4",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "types-pyyaml>=6.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# D100 to D103 require docstrings, because evaluators read this code directly.
+select = ["E", "F", "I", "UP", "B", "D100", "D101", "D102", "D103"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test names already state the behaviour under test.
+"tests/**" = ["D100", "D101", "D102", "D103"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# Several vector-search and LLM packages ship without complete type stubs.
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["faults: failure-injection tests for each fallback path"]
