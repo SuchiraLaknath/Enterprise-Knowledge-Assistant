@@ -119,3 +119,17 @@ async def test_local_search_applies_document_filters():
     )
 
     assert [chunk.doc_id for chunk in result.chunks] == ["NEW"]
+
+
+async def test_final_check_also_covers_the_local_fallback_path():
+    # Simulates a bug in the local index: the final check must still protect the user.
+    class LeakyLocalIndex:
+        def search(self, *search_arguments):
+            return [make_chunk("SECRET#c0", access_level="restricted")]
+
+    service = make_service(FakeSearchBackend(embedding_fails=True))
+    service._local_keyword_index = LeakyLocalIndex()
+
+    result = await service.search("payment outage", VIEWER)
+
+    assert result.chunks == []

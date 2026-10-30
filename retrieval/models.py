@@ -53,7 +53,8 @@ class DocumentFilters(BaseModel):
 class RetrievedChunk(BaseModel):
     """One search result, with everything needed to cite it."""
 
-    model_config = ConfigDict(frozen=True)
+    # Validation errors are logged, so they must not quote the document text they received.
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     chunk_id: str
     doc_id: str

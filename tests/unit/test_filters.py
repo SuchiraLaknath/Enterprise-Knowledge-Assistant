@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from retrieval.filters import build_metadata_filter, is_access_allowed, keep_permitted_chunks
-from retrieval.models import DocumentFilters, UserContext
+from retrieval.models import DocumentFilters, RetrievedChunk, UserContext
 from tests.fakes.fake_search import make_chunk
 
 VIEWER = UserContext(user_id="vimal", role="viewer", allowed_access_levels=("public", "internal"))
@@ -58,3 +58,12 @@ def test_keep_permitted_chunks_drops_chunks_above_the_users_level():
     permitted_chunks = keep_permitted_chunks(chunks, VIEWER)
 
     assert [chunk.chunk_id for chunk in permitted_chunks] == ["OPEN#c0"]
+
+
+def test_validation_errors_do_not_quote_document_text():
+    # Validation errors reach the logs, and the record may come from a restricted document.
+    with pytest.raises(ValidationError) as caught_error:
+        RetrievedChunk(chunk_id="DOC#c0", text="restricted document body")
+
+    # Pydantic shortens long values, so the test checks that nothing is quoted at all.
+    assert "input_value" not in str(caught_error.value)
