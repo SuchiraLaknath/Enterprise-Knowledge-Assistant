@@ -30,17 +30,21 @@ def build_document_filters(plan: Plan) -> DocumentFilters:
 
 
 async def retrieval_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
-    """Search for the planned query and return attributed evidence."""
+    """Search for the planned query and return attributed evidence.
+
+    There is no error handling here, because the search service returns its failures as data
+    in `degraded`, and falls back to local search by itself.
+    """
     emit_node_started(NODE_NAME)
     plan = state["plan"]
-    if plan is None:
-        emit_node_finished(NODE_NAME)
-        return {"retrieval_finished": True}
+    # The supervisor routes here only after making a plan, so one always exists.
+    assert plan is not None
 
     search_result = await runtime.context.document_search.search(
         plan.search_query,
         state["user"],
         build_document_filters(plan),
+        # An empty list means that the plan did not narrow the search to any department.
         namespaces=tuple(plan.departments) or None,
     )
 
@@ -56,6 +60,7 @@ async def retrieval_agent(state: AgentState, runtime: Runtime[AgentDependencies]
         ],
         degraded=search_result.degraded,
     )
+    # `retrieval` lists the evidence, and `state` updates the running totals in the panel.
     emit_event(
         EventType.STATE,
         evidence_count=len(search_result.chunks),

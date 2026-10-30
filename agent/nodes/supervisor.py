@@ -17,6 +17,7 @@ from agent.state import AgentState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
 
 NODE_NAME = "supervisor"
+# Planning needs the same strong models as answering, so it shares their route.
 PLANNING_ROUTE = "response"
 
 DEGRADED_MODEL_FALLBACK = "supervisor_used_fallback_model"
@@ -60,7 +61,10 @@ async def _create_plan(
     except AllModelsFailedError:
         return _fallback_plan(latest_user_text(state)), [DEGRADED_NO_PLAN]
 
-    degraded = [DEGRADED_MODEL_FALLBACK] if planning_result.failed_model_specs else []
+    degraded = [
+        f"{DEGRADED_MODEL_FALLBACK}:{model_spec}"
+        for model_spec in planning_result.failed_model_specs
+    ]
     return planning_result.value, degraded
 
 
@@ -78,8 +82,6 @@ async def supervisor(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
         EventType.STATE,
         intent=plan.intent,
         plan_steps=plan.steps,
-        evidence_count=0,
-        retries=0,
         degraded=degraded,
     )
     emit_node_finished(NODE_NAME)
@@ -87,7 +89,7 @@ async def supervisor(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
 
 
 def choose_next_node(state: AgentState) -> Literal["retrieval_agent", "response_agent"]:
-    """Decide where the graph goes next.
+    """Decide where the graph goes next, and report the decision to the activity panel.
 
     This is plain code rather than an LLM decision, so that every loop stays bounded.
     """
@@ -98,5 +100,6 @@ def choose_next_node(state: AgentState) -> Literal["retrieval_agent", "response_
     next_node: Literal["retrieval_agent", "response_agent"] = (
         "retrieval_agent" if needs_retrieval else "response_agent"
     )
-    emit_event(EventType.ROUTE, source=NODE_NAME, target=next_node)
+    reason = "documents are needed" if needs_retrieval else "ready to answer"
+    emit_event(EventType.ROUTE, source=NODE_NAME, target=next_node, reason=reason)
     return next_node

@@ -1,6 +1,8 @@
 """Run the real API and graph with fake services, through HTTP."""
 
 import json
+import time
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -13,9 +15,10 @@ from agent.graph import build_agent_graph, create_checkpoint_serializer
 from api.auth import TOKEN_ALGORITHM
 from api.main import create_app
 from api.routes import chat as chat_route
+from api.routes.chat import build_checkpoint_thread_id
 from api.services import ApplicationServices
 from config.settings import get_limits, get_role_access
-from retrieval.models import SearchResult
+from retrieval.models import SearchResult, UserContext
 from tests.fakes.fake_llm import FakeLlm, make_plan
 from tests.fakes.fake_search import make_chunk
 
@@ -43,8 +46,8 @@ def llm():
 
 @pytest.fixture
 async def client(search, llm, monkeypatch):
-    async def no_trace_url(run_id, project_name):
-        return None
+    async def no_trace_url(run_id, project_name, timeout_seconds):
+        return "https://trace.example/run"
 
     monkeypatch.setattr(chat_route, "find_trace_url", no_trace_url)
     app = create_app(use_lifespan=False)
@@ -129,6 +132,14 @@ async def test_an_expired_token_is_rejected(client):
     assert response.status_code == 401
 
 
+async def test_a_signed_token_without_an_expiry_is_rejected(client):
+    token = jwt.encode({"sub": "admin"}, JWT_SECRET, algorithm=TOKEN_ALGORITHM)
+
+    response, _ = await post_chat(client, {"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+
+
 async def test_a_role_claim_in_the_token_is_ignored(client, search):
     # Rule 1: the role comes from the server, even if a valid token claims another one.
     token = jwt.encode(
@@ -169,10 +180,23 @@ async def test_chat_streams_activity_and_then_the_final_answer(client):
     event_types = [event["type"] for event in events]
     assert response.status_code == 200
     assert {"node", "state", "route", "retrieval", "token"} <= set(event_types)
-    assert event_types[-1] == "final"
-    assert events[-1]["answer"] == "Answer [1]."
-    assert events[-1]["citations"][0]["chunk_id"] == "DOC#c0"
-    assert events[-1]["draft_status"] == "confirmed"
+    assert event_types[-2:] == ["final", "trace"]
+    assert events[-2]["answer"] == "Answer [1]."
+    assert events[-2]["citations"][0]["chunk_id"] == "DOC#c0"
+    assert events[-2]["draft_status"] == "confirmed"
+    assert events[-1]["url"] == "https://trace.example/run"
+
+
+async def test_the_final_event_reports_when_the_answer_replaced_the_draft(client, llm):
+    # The poisoned link is shown as plain text in the draft, and removed from the final answer.
+    llm.answers = ["See https://attacker.example/x [1]."]
+    headers = await sign_in(client)
+
+    _, events = await post_chat(client, headers)
+
+    final_event = next(event for event in events if event["type"] == "final")
+    assert final_event["draft_status"] == "replaced"
+    assert "attacker.example" not in final_event["answer"]
 
 
 async def test_two_users_with_the_same_thread_id_do_not_share_a_conversation(client, llm):
@@ -185,6 +209,14 @@ async def test_two_users_with_the_same_thread_id_do_not_share_a_conversation(cli
 
     second_user_messages = [message.content for message in llm.received_answer_messages[1]]
     assert "My private question" not in second_user_messages
+
+
+async def test_a_role_change_starts_a_new_conversation():
+    # A demoted user must not keep answers from their earlier access level in the prompt.
+    analyst = UserContext(user_id="sam", role="analyst", allowed_access_levels=("internal",))
+    viewer = UserContext(user_id="sam", role="viewer", allowed_access_levels=("public",))
+
+    assert build_checkpoint_thread_id(analyst, "t1") != build_checkpoint_thread_id(viewer, "t1")
 
 
 async def test_a_message_over_the_limit_is_rejected(client):
@@ -224,6 +256,20 @@ async def test_a_failure_in_the_graph_becomes_a_safe_error_event(client, search)
     assert response.status_code == 200
     assert events[-1]["type"] == "error"
     assert "secret internal detail" not in response.text
+
+
+async def test_a_slow_trace_lookup_cannot_delay_the_answer(monkeypatch):
+    class SlowClient:
+        def read_project(self, project_name):
+            time.sleep(0.5)
+
+    monkeypatch.setattr(chat_route, "LangSmithClient", SlowClient)
+    started_at = time.monotonic()
+
+    trace_url = await chat_route.find_trace_url(uuid.uuid4(), "test", timeout_seconds=0.05)
+
+    assert trace_url is None
+    assert time.monotonic() - started_at < 0.4
 
 
 async def test_health_needs_no_login(client):

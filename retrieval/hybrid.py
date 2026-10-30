@@ -130,7 +130,7 @@ async def hybrid_search(
             failed_namespaces.append(namespace)
             last_failure = namespace_result
             logger.warning(
-                "namespace_query_failed", namespace=namespace, error=str(namespace_result)
+                "namespace_query_failed", namespace=namespace, error=type(namespace_result).__name__
             )
         else:
             merged_chunks.extend(namespace_result)

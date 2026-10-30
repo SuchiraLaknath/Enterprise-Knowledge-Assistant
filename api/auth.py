@@ -85,7 +85,11 @@ def get_current_user(
     # Naming the algorithm stops a forged token from choosing a weaker one.
     try:
         token_claims = jwt.decode(
-            credentials.credentials, services.jwt_secret, algorithms=[TOKEN_ALGORITHM]
+            credentials.credentials,
+            services.jwt_secret,
+            algorithms=[TOKEN_ALGORITHM],
+            # A token with no expiry would be valid forever, even if it was signed correctly.
+            options={"require": ["exp", "sub"]},
         )
     except jwt.InvalidTokenError as error:
         raise invalid_login from error

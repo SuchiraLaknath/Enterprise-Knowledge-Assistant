@@ -20,7 +20,10 @@ def _describe_state(event: dict[str, Any]) -> str:
         lines.append(f"  Intent: {event['intent']}")
     for step_number, step in enumerate(event.get("plan_steps", []), start=1):
         lines.append(f"  Step {step_number}: {step}")
-    lines.append(f"  Evidence: {event.get('evidence_count', 0)} chunks")
+    if "evidence_count" in event:
+        lines.append(f"  Evidence: {event['evidence_count']} chunks")
+    if "citation_count" in event:
+        lines.append(f"  Citations: {event['citation_count']}")
     if event.get("degraded"):
         lines.append(f"  Degraded: {', '.join(event['degraded'])}")
     return "\n".join(lines)
@@ -28,7 +31,7 @@ def _describe_state(event: dict[str, Any]) -> str:
 
 def _describe_route(event: dict[str, Any]) -> str:
     """Show a routing decision."""
-    return f"  Route: {event['source']} → {event['target']}"
+    return f"  Route: {event['source']} → {event['target']} ({event['reason']})"
 
 
 def _describe_retrieval(event: dict[str, Any]) -> str:

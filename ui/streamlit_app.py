@@ -22,6 +22,7 @@ from config.settings import get_environment_settings  # noqa: E402
 from ui.event_formatting import apply_token_event, describe_event, parse_sse_line  # noqa: E402
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
+# The sign-in shortcuts for the demo. The API holds the real user list and checks these.
 DEMO_USERS = {"vimal": "viewer-demo", "nadee": "analyst-demo", "admin": "admin-demo"}
 
 
@@ -117,6 +118,7 @@ def run_chat_turn(message: str, activity_panel: Any) -> None:
         final_event: dict[str, Any] | None = None
 
         try:
+            # Tokens go to the draft, `final` replaces it, and the rest goes to the panel.
             for event in stream_events(message):
                 if event["type"] == "token":
                     draft = apply_token_event(draft, event)
@@ -124,6 +126,10 @@ def run_chat_turn(message: str, activity_panel: Any) -> None:
                     answer_area.text(draft)
                 elif event["type"] == "final":
                     final_event = event
+                    # Show the answer now, rather than after the trace link arrives.
+                    answer_area.markdown(final_event["answer"])
+                elif event["type"] == "trace" and final_event is not None:
+                    final_event["trace_url"] = event["url"]
                 elif event["type"] == "error":
                     st.error(event["message"])
                 else:
@@ -134,9 +140,11 @@ def run_chat_turn(message: str, activity_panel: Any) -> None:
         except httpx.HTTPError:
             st.error("The assistant could not be reached. Please try again.")
 
-        # The final event replaces the draft, and only this text is rendered as markdown.
-        if final_event is not None:
-            answer_area.markdown(final_event["answer"])
+        # Rule 9: only the final answer is rendered as markdown, and a turn that never finished
+        # must not leave an unconfirmed draft on the screen.
+        if final_event is None:
+            answer_area.empty()
+        else:
             show_answer_details(final_event)
             st.session_state.chat_history.append(
                 {"role": "assistant", "text": final_event["answer"], "final_event": final_event}

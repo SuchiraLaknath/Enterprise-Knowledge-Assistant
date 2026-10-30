@@ -23,7 +23,7 @@ from agent.schemas import Citation
 from agent.state import AgentState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
 from retrieval.models import RetrievedChunk
-from security.output_guard import remove_markdown_images
+from security.output_guard import clean_final_answer
 from security.stream_masker import StreamMasker, mask_sensitive_text
 
 NODE_NAME = "response_agent"
@@ -34,6 +34,9 @@ EXCERPT_WORD_COUNT = 60
 
 DEGRADED_MODEL_FALLBACK = "response_used_fallback_model"
 DEGRADED_EXTRACTIVE = "extractive_answer_without_llm"
+CONVERSATION_NOTE_FOR_EXCERPTS = (
+    "I could not write an answer, so I showed excerpts from these documents: {doc_ids}."
+)
 NO_MODEL_NO_EVIDENCE_REPLY = (
     "I'm sorry, the assistant is temporarily unavailable. Please try again shortly."
 )
@@ -57,7 +60,10 @@ def format_evidence_documents(evidence: list[RetrievedChunk]) -> str:
 
 
 def extract_citations(answer: str, evidence: list[RetrievedChunk]) -> list[Citation]:
-    """Return the citation for each `[n]` used, ignoring numbers that match no evidence."""
+    """Return the citation for each `[n]` used.
+
+    Rule 4: only markers that match this turn's evidence become citations.
+    """
     used_markers = sorted({int(marker) for marker in CITATION_MARKER_PATTERN.findall(answer)})
     citations = []
     for marker in used_markers:
@@ -82,7 +88,8 @@ def build_extractive_answer(evidence: list[RetrievedChunk]) -> str:
 
     excerpts = []
     for marker, chunk in enumerate(evidence, start=1):
-        excerpt = " ".join(chunk.text.split()[:EXCERPT_WORD_COUNT])
+        # Masking comes before the cut, which could otherwise split a number and hide it.
+        excerpt = " ".join(mask_sensitive_text(chunk.text).split()[:EXCERPT_WORD_COUNT])
         excerpts.append(f"[{marker}] **{chunk.title}** ({chunk.section}): {excerpt}...")
     introduction = (
         "The assistant cannot write a full answer at the moment, so here are the most "
@@ -91,11 +98,22 @@ def build_extractive_answer(evidence: list[RetrievedChunk]) -> str:
     return "\n\n".join([introduction, *excerpts])
 
 
+def remove_citation_markers(message: BaseMessage) -> BaseMessage:
+    """Remove `[n]` from an old answer, because each turn numbers its evidence afresh.
+
+    Rule 4: a repeated `[1]` from an earlier answer would point at a different document.
+    """
+    if isinstance(message, AIMessage):
+        return AIMessage(CITATION_MARKER_PATTERN.sub("", message.text))
+    return message
+
+
 def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -> list[BaseMessage]:
     """Assemble the system prompt, the evidence and the recent conversation."""
-    plan = state["plan"]
+    plan = state.get("plan")
     evidence = state.get("evidence", [])
-    conversation = state["messages"][-dependencies.history_message_count :]
+    recent_messages = state["messages"][-dependencies.history_message_count :]
+    conversation = [remove_citation_markers(message) for message in recent_messages]
 
     if plan is not None and not plan.needs_documents:
         return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT), *conversation]
@@ -107,7 +125,8 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
     else:
         evidence_text = "No documents were found for this question."
 
-    # The documents go before the conversation, so that the employee's question comes last.
+    # Rule 5: the documents sit in a user turn, followed by a fixed reply that labels them as
+    # data, so they never read as instructions. The employee's question comes last.
     return [
         SystemMessage(RESPONSE_SYSTEM_PROMPT),
         HumanMessage(evidence_text),
@@ -153,20 +172,30 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
     try:
         answer_result = await _stream_masked_answer(answer_messages, runtime.context)
         answer = answer_result.value
-        if answer_result.failed_model_specs:
-            degraded.append(DEGRADED_MODEL_FALLBACK)
+        conversation_note = None
+        degraded.extend(
+            f"{DEGRADED_MODEL_FALLBACK}:{model_spec}"
+            for model_spec in answer_result.failed_model_specs
+        )
     except AllModelsFailedError:
         answer = build_extractive_answer(evidence)
         degraded.append(DEGRADED_EXTRACTIVE)
+        # Rule 5: excerpts are raw document text, so they must not join the conversation,
+        # where later turns would read them as the assistant's own words.
+        cited_doc_ids = ", ".join(sorted({chunk.doc_id for chunk in evidence})) or "none"
+        conversation_note = CONVERSATION_NOTE_FOR_EXCERPTS.format(doc_ids=cited_doc_ids)
 
-    # Step 2: clean the complete text, and link its citations to the evidence.
-    final_answer = remove_markdown_images(mask_sensitive_text(answer))
+    # Step 2: clean the complete text, because the masker protected only the draft, and the
+    # answer may be excerpts that never passed through it. Then link its citations.
+    final_answer = clean_final_answer(mask_sensitive_text(answer))
     citations = extract_citations(final_answer, evidence)
 
     # Step 3: only now does the answer join the conversation (rule 9).
+    emit_event(EventType.STATE, citation_count=len(citations), degraded=degraded)
     emit_node_finished(NODE_NAME)
     return {
-        "messages": [AIMessage(final_answer)],
+        "messages": [AIMessage(conversation_note or final_answer)],
+        "final_answer": final_answer,
         "final_citations": citations,
         "degraded": degraded,
     }

@@ -124,6 +124,7 @@ class ApiLimits(BaseModel):
 
     max_message_length: int = Field(gt=0)
     token_lifetime_minutes: int = Field(gt=0)
+    trace_lookup_timeout_s: float = Field(gt=0)
     graph_recursion_limit: int = Field(gt=0)
 
 

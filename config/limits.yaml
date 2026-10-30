@@ -68,5 +68,7 @@ api:
   max_message_length: 4000
   # Minutes before a login expires.
   token_lifetime_minutes: 60
+  # Seconds allowed to find the trace link, which is sent after the answer.
+  trace_lookup_timeout_s: 3.0
   # Steps a graph may take in one turn, which stops any runaway loop.
   graph_recursion_limit: 25

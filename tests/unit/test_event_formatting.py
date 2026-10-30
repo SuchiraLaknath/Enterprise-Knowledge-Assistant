@@ -27,6 +27,14 @@ def test_state_events_show_the_plan_and_any_degradation():
     assert "rerank_unavailable" in description
 
 
+def test_route_events_show_the_reason():
+    description = describe_event(
+        {"type": "route", "source": "supervisor", "target": "response_agent", "reason": "ready"}
+    )
+
+    assert description == "  Route: supervisor → response_agent (ready)"
+
+
 def test_retrieval_events_show_the_query_and_sources():
     description = describe_event(
         {

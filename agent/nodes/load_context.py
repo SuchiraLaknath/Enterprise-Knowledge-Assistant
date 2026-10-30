@@ -21,10 +21,10 @@ async def load_context(state: AgentState) -> dict[str, Any]:
         "plan": None,
         "retrieval_finished": False,
         "evidence": Overwrite([]),
-        "errors": Overwrite([]),
         "degraded": Overwrite([]),
         "response_retries": 0,
         "evidence_retries": 0,
+        "final_answer": "",
         "final_citations": [],
     }
     emit_node_finished(NODE_NAME)

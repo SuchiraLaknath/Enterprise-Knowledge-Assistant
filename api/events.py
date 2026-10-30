@@ -9,6 +9,8 @@ from typing import Any
 
 from langgraph.config import get_stream_writer
 
+from security.stream_masker import mask_sensitive_text
+
 
 class EventType(StrEnum):
     """Every kind of event. The UI decides how to display each one."""
@@ -35,13 +37,30 @@ class EventType(StrEnum):
     TOKEN = "token"
     # The authoritative answer, which confirms or replaces the draft.
     FINAL = "final"
+    # The link to this turn's trace, sent after the answer so that it can never delay it.
+    TRACE = "trace"
     # A failure the user should know about.
     ERROR = "error"
 
 
+def _mask_event_values(value: Any) -> Any:
+    """Mask every string in an event, however deeply it is nested."""
+    if isinstance(value, str):
+        return mask_sensitive_text(value)
+    if isinstance(value, dict):
+        return {key: _mask_event_values(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_mask_event_values(item) for item in value]
+    return value
+
+
 def build_event(event_type: EventType, **details: Any) -> dict[str, Any]:
-    """Return an event in the shape that is sent to the UI."""
-    return {"type": event_type.value, **details}
+    """Return an event in the shape that is sent to the UI.
+
+    Rule 9: every event passes through here, so a query, plan or title that quotes a sensitive
+    number is masked as well as the answer, without each node having to remember.
+    """
+    return {"type": event_type.value, **_mask_event_values(details)}
 
 
 def emit_event(event_type: EventType, **details: Any) -> None:

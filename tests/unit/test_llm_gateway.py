@@ -182,6 +182,22 @@ async def test_a_refusal_moves_on_to_the_next_model():
     assert result.model_spec == "anthropic:second"
 
 
+async def test_a_refusal_does_not_count_against_the_providers_breaker():
+    # A declined request says nothing about whether the provider is healthy.
+    models = healthy_models(
+        anthropic_first=FakeChatModel("partial", refuses=True),
+        anthropic_second=FakeChatModel("partial", refuses=True),
+    )
+    gateway = make_gateway(models)
+    collector = TokenCollector()
+
+    for _ in range(3):
+        await gateway.stream_text("response", MESSAGES, collector.on_text, collector.on_draft_reset)
+
+    # Every call still tried Anthropic, because refusals never opened its breaker.
+    assert models["anthropic:first"].call_count == 3
+
+
 async def test_streamed_answers_ask_anthropic_for_the_configured_effort():
     collector = TokenCollector()
 

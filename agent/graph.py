@@ -1,7 +1,18 @@
 """Wire the nodes into the agent graph.
 
-This skeleton covers planning, retrieval and the response. Later build steps add the guards,
-research, tools, approval, validation and memory nodes shown in `docs/ARCHITECTURE.md`.
+One turn follows this path:
+
+    api/routes/chat.py    verifies the user and starts the graph
+      load_context        clears what belonged to the previous turn
+      supervisor          understands the question and makes a plan
+      retrieval_agent     finds evidence, if the plan needs documents
+      supervisor          sees the worker has returned, and chooses the next step
+      response_agent      streams a masked draft, then stores the finished answer
+    api/routes/chat.py    sends the `final` event and the trace link
+
+Each node reports its progress with events from `api/events.py`, and the chat route forwards
+them to the activity panel. Later build steps add the guards, research, tools, approval,
+validation and memory nodes shown in `docs/ARCHITECTURE.md`.
 """
 
 from typing import Any

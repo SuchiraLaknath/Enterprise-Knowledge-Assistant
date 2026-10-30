@@ -127,7 +127,7 @@ class DocumentSearchService:
             )
         except Exception as error:  # Any Pinecone failure leads to the same fallback.
             self._circuit_breaker.record_failure()
-            logger.warning("hybrid_search_failed", error=str(error))
+            logger.warning("hybrid_search_failed", error=type(error).__name__)
             return _HybridAttempt(None, [DegradedReason.PINECONE_UNAVAILABLE])
 
         self._circuit_breaker.record_success()
@@ -155,7 +155,7 @@ class DocumentSearchService:
                 self._limits.rerank_timeout_s,
             )
         except Exception as error:  # Hybrid order is a usable answer, so continue with it.
-            logger.warning("rerank_failed", error=str(error))
+            logger.warning("rerank_failed", error=type(error).__name__)
             return hybrid_order_chunks, [DegradedReason.RERANK_UNAVAILABLE]
         relevant_chunks = [
             chunk for chunk in reranked_chunks if chunk.score >= self._limits.minimum_rerank_score

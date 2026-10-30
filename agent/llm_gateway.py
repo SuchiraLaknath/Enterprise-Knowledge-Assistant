@@ -1,8 +1,18 @@
 """The single entry point for LLM calls.
 
-Nodes ask for a route by name, and this module owns everything about providers: which model to
-try, in what order, with which key, and what to do when one fails. Fallback is a plain loop
-rather than `with_fallbacks`, so that each attempt can be reported to the UI and to LangSmith.
+Nodes ask for a route by name, and this module owns everything about providers. A call follows
+these steps:
+
+1. Skip any provider with no key or an open circuit breaker.
+2. Try the remaining models in route order, each with its own timeout within the route's
+   total deadline.
+3. Count a failure against the provider's breaker. A refusal is not counted, because the
+   provider is healthy and it was only this request that was declined.
+4. If text had already been streamed, reset the draft before the next model starts.
+5. If every model fails, raise `AllModelsFailedError`, and the calling node uses its own
+   fallback: a default plan in the supervisor, and cited excerpts in the response agent.
+
+Fallback is a plain loop rather than `with_fallbacks`, so that each attempt can be reported.
 """
 
 import asyncio
@@ -20,7 +30,7 @@ from resilience.circuit_breaker import CircuitBreaker
 
 logger = structlog.get_logger()
 
-# The value of `FAULTS` that fails every provider, to demonstrate the no-LLM answer.
+# The `FAULTS` value that fails every provider. A provider's own name fails only that one.
 ALL_PROVIDERS_FAULT = "llm"
 
 TextHandler = Callable[[str], Awaitable[None]]
@@ -128,6 +138,8 @@ class LlmGateway:
             provider = _provider_of(model_spec)
             if self._api_keys.get(provider) and self._breakers[provider].allows_request():
                 usable_model_specs.append(model_spec)
+            else:
+                logger.warning("llm_model_skipped", route=route_name, model=model_spec)
         return usable_model_specs
 
     def _raise_if_fault_enabled(self, provider: str) -> None:
@@ -160,7 +172,8 @@ class LlmGateway:
         self, route_name: str, model_spec: str, error: Exception, failures: list[str]
     ) -> None:
         """Count a failure against the provider, and note it for the caller."""
-        self._breakers[_provider_of(model_spec)].record_failure()
+        if not isinstance(error, ModelRefusedError):
+            self._breakers[_provider_of(model_spec)].record_failure()
         failures.append(model_spec)
         logger.warning(
             "llm_attempt_failed", route=route_name, model=model_spec, error=type(error).__name__

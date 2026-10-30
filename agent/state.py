@@ -28,8 +28,10 @@ class AgentState(TypedDict, total=False):
     plan: Plan | None
     retrieval_finished: bool
     evidence: Annotated[list[RetrievedChunk], operator.add]
-    errors: Annotated[list[str], operator.add]
     degraded: Annotated[list[str], operator.add]
+    # Reserved for the validator loop in build step 8.
     response_retries: int
     evidence_retries: int
+    # The answer shown this turn. It can differ from the message stored in the conversation.
+    final_answer: str
     final_citations: list[Citation]
