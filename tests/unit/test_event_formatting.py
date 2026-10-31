@@ -1,4 +1,10 @@
-from ui.event_formatting import apply_token_event, describe_event, parse_sse_line
+from api.events import ResearchStage
+from ui.event_formatting import (
+    RESEARCH_STAGE_DESCRIPTIONS,
+    apply_token_event,
+    describe_event,
+    parse_sse_line,
+)
 
 
 def test_node_events_show_the_active_node():
@@ -124,7 +130,11 @@ def test_each_research_stage_has_a_description():
             "batch_size": 4,
             "chunks_read": 8,
         },
-        {"stage": "plan_failed", "error": "SandboxViolation: Import is not allowed."},
+        {
+            "stage": "plan_failed",
+            "error": "SandboxViolation: Import is not allowed.",
+            "findings_kept": 0,
+        },
     ]
 
     descriptions = [describe_event({"type": "research", **stage}) for stage in stages]
@@ -135,3 +145,20 @@ def test_each_research_stage_has_a_description():
     assert "[4, 4]" in descriptions[3]
     assert "depth 2" in descriptions[4]
     assert "Import is not allowed" in descriptions[5]
+
+
+def test_every_research_stage_has_a_description():
+    # The UI names stages as plain strings, so this stops the two lists from drifting apart.
+    assert set(RESEARCH_STAGE_DESCRIPTIONS) == {stage.value for stage in ResearchStage}
+
+
+def test_an_unknown_stage_is_never_reported_as_a_failure():
+    assert describe_event({"type": "research", "stage": "new_stage"}) == "  Research: new_stage"
+
+
+def test_a_plan_that_stopped_early_says_that_its_findings_were_kept():
+    description = describe_event(
+        {"type": "research", "stage": "plan_failed", "error": "IndexError", "findings_kept": 4}
+    )
+
+    assert "keeping 4 findings" in description

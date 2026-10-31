@@ -3,12 +3,16 @@
 One failed worker must not fail the turn, so every test here still ends with an answer.
 """
 
+import asyncio
+from unittest.mock import patch
+
 import pytest
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import AllModelsFailedError
+from agent.nodes import research_agent
 from agent.nodes.research_agent import DEGRADED_INCOMPLETE, DEGRADED_NO_FINDINGS
 from agent.rlm.aggregate import DEGRADED_GROUPED_BY_LABEL
 from agent.rlm.helpers import DEGRADED_BATCH_FAILED
@@ -226,6 +230,33 @@ async def test_research_continues_when_pinecone_falls_back_to_local_search():
 
     assert state["research_report"].documents_analysed == 2
     assert DegradedReason.LOCAL_KEYWORD_SEARCH in state["degraded"]
+
+
+async def test_the_deadline_is_shared_across_plan_attempts():
+    # A review found that each attempt started a fresh deadline, so a slow failing ladder could
+    # take three times as long as the configured limit. Here the first attempt uses all of it.
+    slow_failing_plan = make_research_code("import os")
+    limits = get_limits().research.model_copy(update={"deadline_s": 0.05})
+    llm = make_llm([slow_failing_plan, WORKING_PLAN])
+    dependencies = make_dependencies(llm)
+    dependencies = make_agent_dependencies(
+        llm,
+        dependencies.document_search,
+        dependencies.document_catalog,
+        research_limits=limits,
+    )
+    original_write_plan_code = research_agent.write_plan_code
+
+    async def write_plan_slowly(**arguments):
+        await asyncio.sleep(0.1)
+        return await original_write_plan_code(**arguments)
+
+    with patch.object(research_agent, "write_plan_code", write_plan_slowly):
+        events, state = await run_turn(dependencies)
+
+    failures = [event["error"] for event in events if event.get("stage") == "plan_failed"]
+    assert any("deadline" in failure for failure in failures)
+    assert state["research_report"] is None
 
 
 async def test_the_sub_agent_budget_is_shared_across_plan_attempts():

@@ -6,6 +6,7 @@ from agent.rlm.helpers import (
     chunk,
     group_by_doc,
 )
+from agent.schemas import BatchAnalysis, ExtractedFinding
 from config.settings import get_limits
 from retrieval.models import UserContext
 from tests.fakes.fake_dependencies import make_agent_dependencies
@@ -87,6 +88,22 @@ async def test_stale_catalog_access_is_caught_on_the_returned_metadata():
     records = await make_session(search, catalog)._fetch_sections(["INC-1"], None)
 
     assert records == []
+
+
+async def test_a_finding_citing_two_documents_keeps_only_the_first():
+    # A finding counts as one document, so evidence from a second would be cited but uncounted.
+    first_chunk = make_section("INC-1")
+    second_chunk = make_section("INC-2")
+    session = make_session(FakeResearchSearch())
+    analysis = BatchAnalysis(
+        findings=[ExtractedFinding(claim="c", theme_label="t", evidence_markers=[1, 2])],
+        unresolved_markers=[],
+    )
+
+    session._record_findings(analysis, [first_chunk, second_chunk], depth=1)
+
+    assert session.findings[0].doc_id == "INC-1"
+    assert session.findings[0].evidence_chunk_ids == ["INC-1#c0"]
 
 
 async def test_a_section_keyword_reads_only_matching_sections():

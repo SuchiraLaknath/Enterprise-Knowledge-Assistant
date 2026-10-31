@@ -63,6 +63,10 @@ class GatewayResult[ResultValue]:
     model_spec: str
     failed_model_specs: list[str] = field(default_factory=list)
 
+    def describe_fallbacks(self, reason_prefix: str) -> list[str]:
+        """Return one `degraded` entry per failed model, naming the step that was affected."""
+        return [f"{reason_prefix}:{model_spec}" for model_spec in self.failed_model_specs]
+
 
 class ChatModelFactory(Protocol):
     """Creates a chat model, so that tests can supply a fake."""

@@ -43,6 +43,27 @@ class EventType(StrEnum):
     ERROR = "error"
 
 
+class ResearchStage(StrEnum):
+    """The steps of a research run, reported in the `stage` field of `research` events."""
+
+    # A plan is ready, from the LLM or the template.
+    PLAN_READY = "plan_ready"
+    # The catalog was surveyed.
+    EXPLORED = "explored"
+    # A research search finished.
+    SEARCHED = "searched"
+    # Targeted sections were read.
+    SECTIONS_FETCHED = "sections_fetched"
+    # The plan's batches passed the budget check.
+    BATCHES_PLANNED = "batches_planned"
+    # One sub-agent finished.
+    BATCH_FINISHED = "batch_finished"
+    # A plan failed, or stopped early and left some findings.
+    PLAN_FAILED = "plan_failed"
+    # The themes and coverage are ready.
+    REPORT_READY = "report_ready"
+
+
 def _mask_event_values(value: Any) -> Any:
     """Mask every string in an event, however deeply it is nested."""
     if isinstance(value, str):

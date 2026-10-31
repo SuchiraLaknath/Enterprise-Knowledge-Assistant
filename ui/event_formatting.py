@@ -1,7 +1,7 @@
 """Turn activity events into the lines shown in the activity panel.
 
-This is plain Python with no Streamlit, so that it can be tested. The output is shown as plain
-text, because it can include text written by the model.
+This is plain Python with no Streamlit, so that it can be tested. Rule 9: the output is shown as
+plain text, because it can include text written by the model.
 """
 
 from typing import Any
@@ -46,14 +46,56 @@ def _describe_retrieval(event: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _describe_research_plan(event: dict[str, Any]) -> str:
+def _describe_plan_ready(event: dict[str, Any]) -> str:
     """Show the generated plan in full, as it is the heart of the RLM flow."""
     heading = f"  Research plan (attempt {event['attempt']}, from {event['source']}):"
     code_lines = [f"    {line}" for line in event["code"].splitlines()]
     return "\n".join([heading, *code_lines])
 
 
-def _describe_research_report(event: dict[str, Any]) -> str:
+def _describe_explored(event: dict[str, Any]) -> str:
+    """Show the size of the collection the plan surveyed."""
+    return f"  Explored catalog: {event['document_count']} documents"
+
+
+def _describe_searched(event: dict[str, Any]) -> str:
+    """Show one search that the plan ran."""
+    return f"  Research search: {event['query']} ({event['result_count']} results)"
+
+
+def _describe_sections_fetched(event: dict[str, Any]) -> str:
+    """Show which sections the plan chose to read."""
+    keyword = event["section_keyword"] or "all sections"
+    return (
+        f"  Fetched sections ({keyword}): {event['section_count']} "
+        f"from {event['document_count']} documents"
+    )
+
+
+def _describe_batches_planned(event: dict[str, Any]) -> str:
+    """Show how the work was divided."""
+    return f"  Batches at depth {event['depth']}: sizes {event['batch_sizes']}"
+
+
+def _describe_batch_finished(event: dict[str, Any]) -> str:
+    """Show one sub-agent's result."""
+    return (
+        f"  Sub-agent at depth {event['depth']}: {event['finding_count']} findings "
+        f"from {event['batch_size']} chunks ({event['chunks_read']} chunks read so far)"
+    )
+
+
+def _describe_plan_failed(event: dict[str, Any]) -> str:
+    """Show why a plan stopped, and whether its work so far was kept."""
+    if event["findings_kept"]:
+        return (
+            f"  Research plan stopped early, keeping {event['findings_kept']} findings: "
+            f"{event['error']}"
+        )
+    return f"  Research plan failed: {event['error']}"
+
+
+def _describe_report_ready(event: dict[str, Any]) -> str:
     """Show the themes and how much of the collection was read."""
     lines = [
         f"  Research: {event['documents_analysed']} documents analysed, "
@@ -65,31 +107,24 @@ def _describe_research_report(event: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# These keys are the values of `ResearchStage` in `api/events.py`. They are written out because
+# the UI talks to the API only through its events, and a test checks that the two match.
+RESEARCH_STAGE_DESCRIPTIONS = {
+    "plan_ready": _describe_plan_ready,
+    "explored": _describe_explored,
+    "searched": _describe_searched,
+    "sections_fetched": _describe_sections_fetched,
+    "batches_planned": _describe_batches_planned,
+    "batch_finished": _describe_batch_finished,
+    "plan_failed": _describe_plan_failed,
+    "report_ready": _describe_report_ready,
+}
+
+
 def _describe_research(event: dict[str, Any]) -> str:
     """Show one step of a research run, which reports its stages as they happen."""
-    stage = event["stage"]
-    if stage == "plan_ready":
-        return _describe_research_plan(event)
-    if stage == "report_ready":
-        return _describe_research_report(event)
-    if stage == "explored":
-        return f"  Explored catalog: {event['document_count']} documents"
-    if stage == "searched":
-        return f"  Research search: {event['query']} ({event['result_count']} results)"
-    if stage == "sections_fetched":
-        keyword = event["section_keyword"] or "all sections"
-        return (
-            f"  Fetched sections ({keyword}): {event['section_count']} "
-            f"from {event['document_count']} documents"
-        )
-    if stage == "batches_planned":
-        return f"  Batches at depth {event['depth']}: sizes {event['batch_sizes']}"
-    if stage == "batch_finished":
-        return (
-            f"  Sub-agent at depth {event['depth']}: {event['finding_count']} findings "
-            f"from {event['batch_size']} chunks ({event['chunks_read']} chunks read so far)"
-        )
-    return f"  Research plan failed: {event['error']}"
+    describe_stage = RESEARCH_STAGE_DESCRIPTIONS.get(event["stage"])
+    return describe_stage(event) if describe_stage else f"  Research: {event['stage']}"
 
 
 EVENT_DESCRIPTIONS = {

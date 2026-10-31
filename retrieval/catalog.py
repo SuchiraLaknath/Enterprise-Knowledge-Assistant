@@ -34,7 +34,7 @@ class CatalogEntry(BaseModel):
     chunk_count: int
 
     def chunk_ids(self) -> list[str]:
-        """Return the id of every chunk, which ingestion numbers from zero."""
+        """Return the id of every chunk, in the format that `ingestion/chunk.py` writes."""
         return [f"{self.doc_id}#c{chunk_number}" for chunk_number in range(self.chunk_count)]
 
 
@@ -80,7 +80,8 @@ class DocumentCatalog:
                 continue
             if matches_document_filters(entry, active_filters):
                 permitted_entries.append(entry)
-        permitted_entries.sort(key=lambda entry: entry.created_ts, reverse=True)
+        # Newest first, because a plan cut short by a limit should keep the latest documents.
+        permitted_entries.sort(key=lambda listed_entry: listed_entry.created_ts, reverse=True)
         return permitted_entries
 
     def summarize(self, user: UserContext) -> CatalogSummary:

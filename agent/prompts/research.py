@@ -45,7 +45,7 @@ Allowed syntax: assignment, for, if, comprehensions, comparisons, + - / //, f-st
 format specifications, and the methods add, append, count, endswith, extend, get, items, join,
 keys, lower, split, startswith, strip, title, upper, values.
 Not allowed: import, while, def, class, lambda, try, with, *, **, %, print, getattr, and any name
-starting with an underscore. Do not paste the question into the code. Use the value `question`.
+starting with a double underscore. Do not paste the question into the code. Use `question`.
 
 Keep the plan as short as the example below. Use explore_documents to list a collection, and
 compute the batch size the way the example does.

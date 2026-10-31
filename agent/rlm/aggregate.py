@@ -64,15 +64,12 @@ async def propose_themes(
     except AllModelsFailedError:
         return group_by_label(findings), [DEGRADED_GROUPED_BY_LABEL]
 
-    degraded = [
-        f"{DEGRADED_MODEL_FALLBACK}:{model_spec}"
-        for model_spec in grouping_result.failed_model_specs
-    ]
+    degraded = grouping_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK)
     return grouping_result.value.themes, degraded
 
 
 def _build_theme(name: str, summary: str, findings: list[Finding]) -> ResearchTheme:
-    """Calculate a theme's counts and dates from its findings."""
+    """Calculate a theme's counts and dates from its findings, of which there is at least one."""
     created_dates = sorted(finding.created_date for finding in findings)
     return ResearchTheme(
         name=name,
@@ -104,6 +101,7 @@ def build_themes(theme_drafts: list[ThemeDraft], findings: list[Finding]) -> lis
 
     themes.sort(key=lambda theme: theme.document_count, reverse=True)
 
+    # Added after sorting, so that leftovers stay last however many there are.
     ungrouped_findings = [
         finding for finding in findings if finding.finding_id not in placed_finding_ids
     ]

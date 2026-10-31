@@ -170,10 +170,7 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
         answer_result = await _stream_masked_answer(answer_messages, runtime.context)
         answer = answer_result.value
         conversation_note = None
-        degraded.extend(
-            f"{DEGRADED_MODEL_FALLBACK}:{model_spec}"
-            for model_spec in answer_result.failed_model_specs
-        )
+        degraded.extend(answer_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK))
     except AllModelsFailedError:
         answer = build_extractive_answer(evidence)
         degraded.append(DEGRADED_EXTRACTIVE)

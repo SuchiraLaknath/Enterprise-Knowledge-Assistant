@@ -63,13 +63,14 @@ class ResearchState(ResearchInput, ResearchOutput, total=False):
     """Everything the subgraph tracks during one research run."""
 
     access_confirmed: bool
-    # The plan ladder: which attempt this is, the code tried and how it failed.
+    # The plan ladder: attempts so far, the code tried, how it failed, and if the template ran.
     plan_attempt: int
     plan_code: str
     plan_error: str
-    can_replan: bool
+    template_used: bool
     findings: list[Finding]
-    # Calls carry across attempts, because the budget is per run (rule 7).
+    # These carry across attempts, because the limits are per run (rule 7).
     sub_agent_calls_used: int
+    run_deadline: float
     chunks_read: int
     depth_reached: int

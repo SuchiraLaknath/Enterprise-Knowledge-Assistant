@@ -1,8 +1,8 @@
 """Choose the Python plan for a research run.
 
-The LLM writes the plan. If its code fails, it gets one more try with the error, and after that
-a fixed template plan runs, so a poor model reply cannot stop an investigation. `plan_attempt`
-counts through that ladder.
+The LLM writes the plan. If its code fails, it gets the configured number of retries with the
+error, and after that a fixed template plan runs, so a poor model reply cannot stop an
+investigation.
 
 The planner sees the question and counts of what this employee may read, never document text,
 so a poisoned document cannot influence the code.
@@ -31,23 +31,29 @@ DEGRADED_PLANNER_UNAVAILABLE = "research_planner_unavailable"
 # With a type or department to narrow by, the catalog lists the whole collection. A search alone
 # would stop at its closest matches, and an answer could quietly miss part of the collection.
 TEMPLATE_PLAN_CODE = """\
+# Fixed template plan, used because the LLM could not write a working one.
 created_after = None
 if recent_days:
     created_after = days_ago(recent_days)
-records = search(search_query, document_types, departments, created_after)
-doc_ids = sorted(group_by_doc(records))
+
+# List the whole collection if possible, because a search stops at its closest matches.
 if document_types or departments:
     documents = explore_documents(document_types, departments, created_after)
     doc_ids = [document["doc_id"] for document in documents]
+else:
+    records = search(search_query, document_types, departments, created_after)
+    doc_ids = sorted(group_by_doc(records))
+
+# This plan does not know which section matters, so sub-agents read each document in full.
 sections = fetch_sections(doc_ids)
 batch_size = len(sections) // MAX_BATCHES + 1
 delegate(question, chunk(sections, batch_size))
 """
 
 
-def is_template_attempt(plan_attempt: int, regeneration_limit: int) -> bool:
-    """Return whether the LLM's attempts are used up: its first, plus each regeneration."""
-    return plan_attempt > regeneration_limit
+def has_llm_attempts_left(attempts_made: int, regeneration_limit: int) -> bool:
+    """Return whether the LLM may write another plan: its first, plus each regeneration."""
+    return attempts_made <= regeneration_limit
 
 
 def _build_planner_messages(
@@ -100,8 +106,5 @@ async def write_plan_code(
     except AllModelsFailedError:
         return None, [DEGRADED_PLANNER_UNAVAILABLE]
 
-    degraded = [
-        f"{DEGRADED_MODEL_FALLBACK}:{model_spec}"
-        for model_spec in planner_result.failed_model_specs
-    ]
+    degraded = planner_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK)
     return planner_result.value.python_code, degraded

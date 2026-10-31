@@ -7,8 +7,8 @@ trace stops the code after a budget of CPU time, in its own thread, so that time
 on a helper does not count.
 
 Known limit: the trace runs between Python lines, so one long operation in C cannot be stopped
-partway. `Mult`, `Pow` and `Mod` are refused and `range` is capped for that reason. See
-`docs/adr/` for what remains.
+partway. `Mult`, `Pow` and `Mod` are refused and `range` is capped to reduce that risk, but
+repeated doubling with `+` remains possible. See `docs/adr/0001-sandbox-limits.md`.
 """
 
 import ast
@@ -153,7 +153,10 @@ def _is_dunder(name: str) -> bool:
 
 
 def _find_assigned_names(syntax_tree: ast.Module) -> set[str]:
-    """Return the variables the code creates, which it may then read."""
+    """Return the variables the code creates, which it may then read.
+
+    A name counts if it is assigned anywhere. Reading it too early fails with a `NameError`.
+    """
     assigned_names = set()
     for node in ast.walk(syntax_tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
@@ -212,8 +215,10 @@ def _build_range_with_a_cap(max_range_items: int) -> Callable[..., range]:
 def _build_cpu_limit_trace(cpu_seconds: float) -> Callable[..., Any]:
     """Return a trace function that stops sandboxed code after `cpu_seconds` of CPU time.
 
-    `time.thread_time` counts only this thread's work, so a helper that waits on the network
-    uses none of the budget.
+    Python calls a trace function once for each new frame, and whatever it returns is called for
+    each line of that frame. So the outer function chooses the frames, and the inner one checks
+    the time. `time.thread_time` counts only this thread's work, so a helper that waits on the
+    network uses none of the budget.
     """
     cpu_deadline = time.thread_time() + cpu_seconds
 
@@ -239,6 +244,8 @@ def _execute_with_cpu_limit(
     """Run the code in this thread, always removing the trace afterwards."""
     sys.settrace(_build_cpu_limit_trace(cpu_seconds))
     try:
+        # Rule 7: this `exec` is safe only because `validate_code` passed the code first, and
+        # the namespace holds nothing but the safe builtins and the given helpers.
         exec(compiled_code, namespace)
     finally:
         sys.settrace(None)
@@ -281,6 +288,7 @@ async def run_sandboxed(
         # Not waiting means that a cancelled turn cannot block the event loop on this thread.
         executor.shutdown(wait=False)
 
+    # RLM plans record their work through helpers, but `python_analysis` needs these results.
     return {
         name: value
         for name, value in namespace.items()

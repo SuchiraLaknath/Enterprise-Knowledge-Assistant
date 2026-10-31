@@ -11,12 +11,15 @@ from agent.schemas import Finding, ResearchReport
 from retrieval.models import RetrievedChunk
 
 
-def format_document_tag(tag_id: int | str, title: str, section: str, body: str) -> str:
-    """Wrap one piece of text in a document tag, escaping everything a document controls."""
+def format_document_tag(tag_id: int | str, title: str, source_label: str, body: str) -> str:
+    """Wrap one piece of text in a document tag, escaping everything a document controls.
+
+    `source_label` says where the text sits, such as a section heading.
+    """
     safe_title = escape(title, quote=True)
-    safe_section = escape(section, quote=True)
+    safe_label = escape(source_label, quote=True)
     return (
-        f'<document id="{tag_id}" title="{safe_title}" section="{safe_section}">\n'
+        f'<document id="{tag_id}" title="{safe_title}" section="{safe_label}">\n'
         f"{escape(body, quote=False)}\n"
         "</document>"
     )
@@ -33,11 +36,13 @@ def format_evidence_documents(evidence: list[RetrievedChunk]) -> str:
 
 def _format_finding_tags(finding: Finding, marker_by_chunk_id: dict[str, int]) -> list[str]:
     """Return one tag per evidence chunk, so that each citation marker has a tag to point to."""
+    source_label = f"{finding.created_date}, {finding.doc_id}"
     tags = []
     for chunk_id in finding.evidence_chunk_ids:
-        section = f"{finding.created_date}, {finding.doc_id}"
         tags.append(
-            format_document_tag(marker_by_chunk_id[chunk_id], finding.title, section, finding.claim)
+            format_document_tag(
+                marker_by_chunk_id[chunk_id], finding.title, source_label, finding.claim
+            )
         )
     return tags
 
@@ -57,10 +62,8 @@ def format_research_report(report: ResearchReport, evidence: list[RetrievedChunk
             f'first_date="{theme.first_date}" last_date="{theme.last_date}" '
             f'summary="{escape(theme.summary, quote=True)}">'
         )
-        finding_tags = [
-            tag
-            for finding in theme.findings
-            for tag in _format_finding_tags(finding, marker_by_chunk_id)
-        ]
+        finding_tags: list[str] = []
+        for finding in theme.findings:
+            finding_tags.extend(_format_finding_tags(finding, marker_by_chunk_id))
         theme_blocks.append("\n".join([theme_heading, *finding_tags, "</theme>"]))
     return "\n\n".join(theme_blocks)

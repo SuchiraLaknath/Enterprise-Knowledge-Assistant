@@ -10,8 +10,8 @@ async. `_run_on_event_loop` hops back to the event loop for that work. Waiting t
 of the sandbox's CPU budget.
 
 Recursion happens in `_analyse_batch`: a sub-agent's work moves one level down when a batch is
-too large for one reader, or when a sub-agent reports that the section it was shown does not
-hold the answer. Both stop at the depth limit.
+too large for one reader, or, through `_follow_up_unresolved`, when a sub-agent reports that the
+section it was shown does not hold the answer. Both stop at the depth limit.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ from agent.dependencies import AgentDependencies
 from agent.evidence_formatting import format_evidence_documents
 from agent.prompts.research import SUB_AGENT_REQUEST_TEMPLATE, SUB_AGENT_SYSTEM_PROMPT
 from agent.schemas import BatchAnalysis, Finding, Plan
-from api.events import EventType, emit_event
+from api.events import EventType, ResearchStage, emit_event
 from retrieval.filters import keep_permitted_chunks, timestamp_days_ago
 from retrieval.models import DocumentFilters, RetrievedChunk, UserContext
 
@@ -36,7 +36,17 @@ logger = structlog.get_logger()
 
 # Map steps are many and simple, so they use the cheaper route.
 SUB_AGENT_ROUTE = "fast"
+# Depths count from one, so a `max_depth` of 2 means two levels of sub-agents.
 TOP_LEVEL = 1
+# What a plan may see of a catalog entry. It holds no text, and `access_level` is not needed.
+PLAN_VISIBLE_CATALOG_FIELDS = {
+    "doc_id",
+    "title",
+    "department",
+    "document_type",
+    "created_date",
+    "chunk_count",
+}
 
 DEGRADED_BATCH_FAILED = "research_batch_failed"
 DEGRADED_BATCH_TRUNCATED = "research_batch_truncated"
@@ -85,7 +95,10 @@ def chunk(items: Sequence[Any], size: int) -> list[list[Any]]:
 class ResearchSession:
     """One research run: its helpers, its budget, and everything it has read and found.
 
-    Budget counters change only on the event loop, so sub-agents running at once cannot race.
+    Each helper a plan calls is a plain method, and the async work it needs has the same name
+    with a leading underscore. Budget counters change only on the event loop, between awaits, so
+    sub-agents running at once cannot overspend. Search and batch limits apply to one plan, and
+    sub-agent calls and the deadline apply to the whole run, across plan attempts.
     """
 
     def __init__(
@@ -93,13 +106,14 @@ class ResearchSession:
         user: UserContext,
         dependencies: AgentDependencies,
         sub_agent_calls_used: int = 0,
+        run_deadline: float | None = None,
     ) -> None:
-        """Start a run. Earlier attempts' calls carry over, as the budget is per research run."""
+        """Start a plan attempt, carrying over what earlier attempts of this run used."""
         self._user = user
         self._dependencies = dependencies
         self._limits = dependencies.research_limits
         self._event_loop = asyncio.get_running_loop()
-        self._deadline = time.monotonic() + self._limits.deadline_s
+        self._deadline = run_deadline or time.monotonic() + self._limits.deadline_s
         self._sub_agent_gate = asyncio.Semaphore(self._limits.max_parallel_sub_agents)
 
         # Document text stays here, and only ids reach the plan.
@@ -151,27 +165,18 @@ class ResearchSession:
         departments: Sequence[str] = (),
         created_after: int | None = None,
     ) -> list[dict[str, Any]]:
-        """List matching documents without their text. Rule 2: the catalog filters by access."""
+        """List matching documents without their text. Rule 2: the catalog filters by access.
+
+        The catalog is in memory, so this needs no event loop and costs no budget.
+        """
         self._raise_if_past_deadline()
         entries = self._dependencies.document_catalog.list_documents(
             self._user,
             DocumentFilters(document_types=tuple(document_types), created_after_ts=created_after),
             tuple(departments) or None,
         )
-        emit_event(EventType.RESEARCH, stage="explored", document_count=len(entries))
-        return [
-            entry.model_dump(
-                include={
-                    "doc_id",
-                    "title",
-                    "department",
-                    "document_type",
-                    "created_date",
-                    "chunk_count",
-                }
-            )
-            for entry in entries
-        ]
+        emit_event(EventType.RESEARCH, stage=ResearchStage.EXPLORED, document_count=len(entries))
+        return [entry.model_dump(include=PLAN_VISIBLE_CATALOG_FIELDS) for entry in entries]
 
     def search(
         self,
@@ -212,7 +217,7 @@ class ResearchSession:
         self._remember_chunks(search_result.chunks)
         emit_event(
             EventType.RESEARCH,
-            stage="searched",
+            stage=ResearchStage.SEARCHED,
             query=query,
             result_count=len(search_result.chunks),
         )
@@ -239,7 +244,7 @@ class ResearchSession:
             ]
         emit_event(
             EventType.RESEARCH,
-            stage="sections_fetched",
+            stage=ResearchStage.SECTIONS_FETCHED,
             document_count=len(doc_ids),
             section_keyword=section_keyword,
             section_count=len(matching_chunks),
@@ -287,7 +292,7 @@ class ResearchSession:
 
         emit_event(
             EventType.RESEARCH,
-            stage="batches_planned",
+            stage=ResearchStage.BATCHES_PLANNED,
             depth=TOP_LEVEL,
             batch_sizes=[len(chunks) for chunks in chunk_batches],
         )
@@ -377,9 +382,10 @@ class ResearchSession:
     async def _call_sub_agent(
         self, task: str, chunks: list[RetrievedChunk], depth: int
     ) -> BatchAnalysis | None:
-        """Ask one sub-agent about one batch.
+        """Ask one sub-agent about one batch. `depth` is here for the trace, which records it.
 
-        Failures are data: one failed batch is recorded, and the others carry on.
+        Failures are data: one failed batch is recorded, and the others carry on. The budget
+        check stays before the first await, so sub-agents running at once cannot overspend.
         """
         if self.sub_agent_calls >= self._limits.max_sub_agent_calls:
             self._note_degraded(DEGRADED_BUDGET_REACHED)
@@ -430,7 +436,13 @@ class ResearchSession:
             ]
             if not evidence_chunks:
                 continue
+            # A finding speaks for one document, or the theme counts would undercount.
             first_chunk = evidence_chunks[0]
+            evidence_chunks = [
+                evidence_chunk
+                for evidence_chunk in evidence_chunks
+                if evidence_chunk.doc_id == first_chunk.doc_id
+            ]
             self.findings.append(
                 Finding(
                     finding_id=f"F{len(self.findings) + 1}",
@@ -448,7 +460,7 @@ class ResearchSession:
 
         emit_event(
             EventType.RESEARCH,
-            stage="batch_finished",
+            stage=ResearchStage.BATCH_FINISHED,
             depth=depth,
             batch_size=len(chunks),
             finding_count=new_finding_count,
@@ -467,19 +479,23 @@ class ResearchSession:
             if reason not in self.degraded:
                 self.degraded.append(reason)
 
+    def _build_deadline_error(self) -> ResearchBudgetExceeded:
+        """Describe a run that is out of time, in the words the next plan attempt will read."""
+        return ResearchBudgetExceeded(
+            f"The research run passed its {self._limits.deadline_s} s deadline."
+        )
+
     def _raise_if_past_deadline(self) -> None:
         """Stop a plan that has run out of time."""
         if time.monotonic() >= self._deadline:
-            raise ResearchBudgetExceeded(
-                f"The research run passed its {self._limits.deadline_s} s deadline."
-            )
+            raise self._build_deadline_error()
 
     def _run_on_event_loop[Result](self, work: Coroutine[Any, Any, Result]) -> Result:
         """Run async work on the event loop from the sandbox thread, bounded by the deadline."""
         seconds_left = self._deadline - time.monotonic()
         if seconds_left <= 0:
             work.close()
-            self._raise_if_past_deadline()
+            raise self._build_deadline_error()
 
         future = asyncio.run_coroutine_threadsafe(work, self._event_loop)
         try:
@@ -487,6 +503,4 @@ class ResearchSession:
         except TimeoutError as error:
             # Cancelling stops the sub-agents, and findings recorded so far are kept.
             future.cancel()
-            raise ResearchBudgetExceeded(
-                f"The research run passed its {self._limits.deadline_s} s deadline."
-            ) from error
+            raise self._build_deadline_error() from error

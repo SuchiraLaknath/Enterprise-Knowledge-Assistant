@@ -71,11 +71,7 @@ async def _create_plan(
     except AllModelsFailedError:
         return _fallback_plan(latest_user_text(state)), [DEGRADED_NO_PLAN]
 
-    degraded = [
-        f"{DEGRADED_MODEL_FALLBACK}:{model_spec}"
-        for model_spec in planning_result.failed_model_specs
-    ]
-    return planning_result.value, degraded
+    return planning_result.value, planning_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK)
 
 
 async def supervisor(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
