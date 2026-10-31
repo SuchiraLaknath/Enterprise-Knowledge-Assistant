@@ -5,7 +5,11 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.graph import build_agent_graph, create_checkpoint_serializer
-from agent.nodes.research_agent import DEGRADED_ROLE_DENIED, build_research_agent
+from agent.nodes.research_agent import (
+    COVERAGE_SHORTFALL_NOTICE,
+    DEGRADED_ROLE_DENIED,
+    build_research_agent,
+)
 from agent.nodes.supervisor import RESEARCH_LIMIT_NOTICE
 from agent.rlm.sub_agents import DEGRADED_BUDGET_REACHED
 from agent.schemas import (
@@ -228,6 +232,77 @@ delegate("State the root cause.", [sections])
 
     assert state["research_report"].documents_analysed == 2
     assert state["research_report"].depth_reached == 2
+
+
+async def test_a_plan_that_drops_listed_documents_cannot_look_complete(graph):
+    # A live plan filtered on title words and kept 11 of 22 documents, and the answer sounded
+    # complete, because only the documents it kept were counted as in scope.
+    catalog = make_catalog(make_catalog_entry("INC-1"), make_catalog_entry("INC-2"))
+    plan = """
+documents = explore_documents()
+sections = fetch_sections([documents[0]["doc_id"]])
+delegate("State the root cause.", [sections])
+"""
+    llm = make_research_llm(plan)
+    chunks = [make_section("INC-1"), make_section("INC-2")]
+    dependencies = make_agent_dependencies(llm, FakeResearchSearch(chunks), catalog)
+
+    _, state = await run_turn(graph, dependencies)
+
+    report = state["research_report"]
+    assert (report.documents_analysed, report.documents_in_scope) == (1, 2)
+    answer_prompt = llm.received_answer_messages[0][1].text
+    assert "findings from 1 of the\n2 documents in scope" in answer_prompt
+    # A live answer claimed full coverage anyway, so code states the shortfall itself.
+    expected_notice = COVERAGE_SHORTFALL_NOTICE.format(documents_analysed=1, documents_in_scope=2)
+    assert state["final_answer"].endswith(expected_notice)
+
+
+async def test_a_full_research_run_carries_no_coverage_notice(graph):
+    catalog = make_catalog(make_catalog_entry("INC-1"), make_catalog_entry("INC-2"))
+    plan = """
+sections = fetch_sections([document["doc_id"] for document in explore_documents()])
+delegate("State the root cause.", [sections])
+"""
+    chunks = [make_section("INC-1"), make_section("INC-2")]
+    dependencies = make_agent_dependencies(
+        make_research_llm(plan), FakeResearchSearch(chunks), catalog
+    )
+
+    _, state = await run_turn(graph, dependencies)
+
+    assert state["research_report"].documents_analysed == 2
+    assert "Please note" not in state["final_answer"]
+
+
+async def test_a_document_covered_by_another_batch_raises_no_warning(graph):
+    # One document can sit in two batches. In a live run the first sub-agent found nothing for
+    # it, and the turn warned about an unresolved document that the second had covered.
+    catalog = make_catalog(make_catalog_entry("INC-1", chunk_count=2))
+    plan = """
+sections = fetch_sections([document["doc_id"] for document in explore_documents()])
+delegate("State the root cause.", chunk(sections, 1))
+"""
+
+    def find_nothing_in_the_first_section(messages):
+        if "Header only." in messages[-1].text:
+            return BatchAnalysis(findings=[], unresolved_markers=[])
+        return analyse_every_document(messages)
+
+    chunks = [
+        make_section("INC-1", chunk_number=0, text="Header only."),
+        make_section("INC-1", chunk_number=1, text="The certificate expired."),
+    ]
+    llm = make_research_llm(plan, batch_replies=find_nothing_in_the_first_section)
+    limits = get_limits().research.model_copy(update={"max_depth": 1})
+    dependencies = make_agent_dependencies(
+        llm, FakeResearchSearch(chunks), catalog, research_limits=limits
+    )
+
+    _, state = await run_turn(graph, dependencies)
+
+    assert state["research_report"].documents_analysed == 1
+    assert "research_documents_unresolved" not in state["degraded"]
 
 
 async def test_a_shortfall_is_stated_in_the_prompt_for_the_answer(graph):

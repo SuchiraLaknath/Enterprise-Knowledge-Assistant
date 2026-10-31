@@ -87,6 +87,7 @@ class ResearchSession:
         # Document text stays here, and only ids reach the plan.
         self._chunks_by_id: dict[str, RetrievedChunk] = {}
         self._delegated_chunk_ids: set[str] = set()
+        self._surveyed_doc_ids: set[str] = set()
         self._search_calls = 0
         self.degraded: list[str] = []
         self.sub_agents = SubAgentTeam(
@@ -120,6 +121,15 @@ class ResearchSession:
         """Return what the sub-agents have found so far."""
         return self.sub_agents.findings
 
+    @property
+    def documents_in_scope(self) -> set[str]:
+        """Return every document the plan listed or handed on, for the coverage line.
+
+        Listed documents count even if the plan then dropped them. Otherwise a plan that filters
+        away half a collection would look complete, because only what it kept would be counted.
+        """
+        return self._surveyed_doc_ids | self.sub_agents.documents_handed_on
+
     def evidence_chunks(self) -> list[RetrievedChunk]:
         """Return the chunks behind the findings. Rule 4: only these can be cited."""
         cited_chunk_ids: list[str] = []
@@ -145,6 +155,7 @@ class ResearchSession:
             DocumentFilters(document_types=tuple(document_types), created_after_ts=created_after),
             tuple(departments) or None,
         )
+        self._surveyed_doc_ids.update(entry.doc_id for entry in entries)
         emit_event(EventType.RESEARCH, stage=ResearchStage.EXPLORED, document_count=len(entries))
         return [entry.model_dump(include=PLAN_VISIBLE_CATALOG_FIELDS) for entry in entries]
 

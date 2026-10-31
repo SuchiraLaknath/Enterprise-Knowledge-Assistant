@@ -75,7 +75,8 @@ class SubAgentTeam:
         self._sub_agent_gate = asyncio.Semaphore(limits.max_parallel_sub_agents)
         self._analysed_chunk_ids: set[str] = set()
         # Every document handed to a sub-agent, so that a report can say what was left out.
-        self.documents_in_scope: set[str] = set()
+        self.documents_handed_on: set[str] = set()
+        self._unresolved_at_deepest_level: set[str] = set()
         self._batches_by_depth: Counter[int] = Counter()
         self.sub_agent_calls = sub_agent_calls_used
         self.depth_reached = 0
@@ -97,7 +98,7 @@ class SubAgentTeam:
             )
 
         for chunks in chunk_batches:
-            self.documents_in_scope.update(chunk.doc_id for chunk in chunks)
+            self.documents_handed_on.update(chunk.doc_id for chunk in chunks)
 
         emit_event(
             EventType.RESEARCH,
@@ -108,6 +109,17 @@ class SubAgentTeam:
         await asyncio.gather(
             *[self._analyse_batch(task, chunks, TOP_LEVEL) for chunks in chunk_batches]
         )
+        self._report_unresolved_documents()
+
+    def _report_unresolved_documents(self) -> None:
+        """Warn about documents no sub-agent covered, once every batch has finished.
+
+        This waits for the end because one document can sit in two batches running at once, so a
+        sub-agent that sees nothing for it does not mean that the other one will not.
+        """
+        found_doc_ids = {finding.doc_id for finding in self.findings}
+        if self._unresolved_at_deepest_level - found_doc_ids:
+            self._note_degraded(DEGRADED_DOCUMENTS_UNRESOLVED)
 
     async def _analyse_batch(self, task: str, chunks: list[RetrievedChunk], depth: int) -> None:
         """Analyse one batch, moving to a level below when it needs more than one reader."""
@@ -153,7 +165,7 @@ class SubAgentTeam:
         if not unresolved_doc_ids:
             return
         if depth >= self._limits.max_depth:
-            self._note_degraded(DEGRADED_DOCUMENTS_UNRESOLVED)
+            self._unresolved_at_deepest_level.update(unresolved_doc_ids)
             return
 
         # All of each document's sections, because the one already shown was not enough.

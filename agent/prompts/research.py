@@ -49,16 +49,17 @@ Not allowed: import, while, def, class, lambda, try, with, *, **, %, print, geta
 starting with a double underscore. Do not paste the question into the code. Use `question`.
 
 Keep the plan as short as the example below. Use explore_documents to list a collection, and
-compute the batch size the way the example does.
+compute the batch size the way the example does. Narrow a collection with explore_documents'
+arguments, and keep every document it returns: do not test words in titles, because titles vary
+and any document you drop goes unread.
 
 Example for "Summarise payment outages in the last year and find recurring root causes":
 
 created_after = days_ago(365)
 documents = explore_documents(document_types=["incident"], departments=["payments"],
                               created_after=created_after)
-outage_ids = [document["doc_id"] for document in documents
-              if "outage" in document["title"].lower()]
-sections = fetch_sections(outage_ids, "Root cause")
+incident_ids = [document["doc_id"] for document in documents]
+sections = fetch_sections(incident_ids, "Root cause")
 batch_size = (len(sections) + TARGET_BATCHES - 1) // TARGET_BATCHES
 delegate("For each incident, state its root cause.", chunk(sections, batch_size))
 

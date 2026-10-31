@@ -52,6 +52,12 @@ DEGRADED_ROLE_DENIED = "research_denied_for_role"
 DEGRADED_INCOMPLETE = "research_incomplete"
 DEGRADED_NO_FINDINGS = "research_failed_used_plain_retrieval"
 NO_FINDINGS_ERROR = "The plan finished without any findings. Delegate batches to sub-agents."
+# Fixed text with counted numbers. A live answer was told it had 10 of 22 documents and still
+# said that all were covered, so an incomplete run must not rely on a model admitting it.
+COVERAGE_SHORTFALL_NOTICE = (
+    "Please note: this research covered {documents_analysed} of the {documents_in_scope} "
+    "documents in scope, so this answer may be incomplete."
+)
 
 
 async def check_research_access(
@@ -180,7 +186,7 @@ async def research_runner(
         "sub_agent_calls_used": session.sub_agents.sub_agent_calls,
         "run_deadline": run_deadline,
         "chunks_read": session.sub_agents.chunks_read,
-        "documents_in_scope": len(session.sub_agents.documents_in_scope),
+        "documents_in_scope": len(session.documents_in_scope),
         "depth_reached": session.sub_agents.depth_reached,
     }
 
@@ -206,6 +212,16 @@ def _build_report(
         chunks_available=dependencies.document_catalog.summarize(state["user"]).chunk_count,
         depth_reached=state["depth_reached"],
         sub_agent_calls=state["sub_agent_calls_used"],
+    )
+
+
+def _describe_coverage_shortfall(report: ResearchReport) -> str | None:
+    """Return the notice for a run that left documents unread, or None if it read them all."""
+    if report.documents_analysed >= report.documents_in_scope:
+        return None
+    return COVERAGE_SHORTFALL_NOTICE.format(
+        documents_analysed=report.documents_analysed,
+        documents_in_scope=report.documents_in_scope,
     )
 
 
@@ -252,7 +268,12 @@ async def research_aggregator(
     emit_event(EventType.STATE, evidence_count=len(state.get("evidence", [])), degraded=degraded)
     emit_node_finished("research_aggregator")
     emit_node_finished(NODE_NAME)
-    return {"research_report": report, "research_finished": True, "degraded": degraded}
+    return {
+        "research_report": report,
+        "research_finished": True,
+        "degraded": degraded,
+        "turn_notice": _describe_coverage_shortfall(report),
+    }
 
 
 async def research_gave_up(state: ResearchState) -> dict[str, Any]:

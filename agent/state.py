@@ -88,6 +88,7 @@ class ResearchOutput(TypedDict, total=False):
     degraded: Annotated[list[str], operator.add]
     research_report: ResearchReport | None
     research_finished: bool
+    turn_notice: str | None
 
 
 class ResearchState(ResearchInput, ResearchOutput, total=False):
