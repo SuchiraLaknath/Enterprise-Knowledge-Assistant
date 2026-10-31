@@ -126,6 +126,7 @@ class ApiLimits(BaseModel):
     token_lifetime_minutes: int = Field(gt=0)
     trace_lookup_timeout_s: float = Field(gt=0)
     graph_recursion_limit: int = Field(gt=0)
+    postgres_timeout_s: float = Field(gt=0)
 
 
 class SandboxLimits(BaseModel):

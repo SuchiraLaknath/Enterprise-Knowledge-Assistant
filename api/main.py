@@ -10,7 +10,9 @@ from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -19,6 +21,7 @@ from psycopg_pool import AsyncConnectionPool
 from agent.dependencies import AgentDependencies
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import LlmGateway
+from api.checkpoint_store import PostgresCheckpointStore
 from api.ratelimit import build_rate_limiter
 from api.routes import auth, chat
 from api.services import ApplicationServices
@@ -75,7 +78,7 @@ def require_startup_secrets(settings: EnvironmentSettings) -> None:
 
 
 def create_connection_pool(
-    database_url: str,
+    database_url: str, timeout_s: float
 ) -> AsyncConnectionPool[AsyncConnection[dict[str, Any]]]:
     """Create the Postgres pool, with the connection settings the checkpointer requires.
 
@@ -87,6 +90,8 @@ def create_connection_pool(
         database_url,
         connection_class=AsyncConnection[dict[str, Any]],
         open=False,
+        # Short, because the default of 30 s would hold every audit write during an outage.
+        timeout=timeout_s,
         check=AsyncConnectionPool.check_connection,
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
     )
@@ -110,12 +115,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     # Step 2: open the connections for the lifetime of the application.
-    connection_pool = create_connection_pool(settings.database_url)
+    connection_pool = create_connection_pool(settings.database_url, limits.api.postgres_timeout_s)
     await connection_pool.open()
     checkpointer = AsyncPostgresSaver(connection_pool, serde=create_checkpoint_serializer())
-    await checkpointer.setup()
     audit_log = PostgresAuditLog(connection_pool)
-    await audit_log.setup()
+    # Tables are created on first use, so that the API can start while Postgres is down.
+    checkpoint_store = PostgresCheckpointStore(
+        connection_pool,
+        [checkpointer.setup, audit_log.setup],
+        limits.api.postgres_timeout_s,
+        settings.enabled_faults,
+    )
 
     async with PineconeSearchBackend(settings, model_names) as search_backend:
         # Step 3: assemble the services that the graph uses.
@@ -138,6 +148,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.services = ApplicationServices(
             agent_graph=build_agent_graph(checkpointer),
+            in_memory_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
+            checkpoint_store=checkpoint_store,
             agent_dependencies=AgentDependencies(
                 llm=llm_gateway,
                 document_search=document_search,
@@ -166,6 +178,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await connection_pool.close()
 
 
+async def handle_invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+    """Return a structured 422 that names the problem, and never echoes what was sent."""
+    problems = [
+        {"field": ".".join(str(part) for part in problem["loc"]), "problem": problem["msg"]}
+        for problem in error.errors()
+    ]
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"error": "invalid_request", "problems": problems},
+    )
+
+
 async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     """Log an unexpected failure, and return a message that reveals no internal details."""
     logger.error("unhandled_error", path=request.url.path, error_type=type(error).__name__)
@@ -181,6 +205,7 @@ def create_app(use_lifespan: bool = True) -> FastAPI:
         title="Enterprise Knowledge Assistant", lifespan=lifespan if use_lifespan else None
     )
     application.add_exception_handler(Exception, handle_unexpected_error)
+    application.add_exception_handler(RequestValidationError, handle_invalid_request)  # type: ignore[arg-type]
     application.include_router(auth.router)
     application.include_router(chat.router)
 

@@ -21,6 +21,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from agent.state import AgentState
 from api.auth import get_current_user, get_services
+from api.checkpoint_store import DEGRADED_IN_MEMORY_CHECKPOINTS
 from api.events import EventType, build_event
 from api.services import ApplicationServices
 from retrieval.models import UserContext
@@ -130,11 +131,17 @@ async def stream_chat_turn(
         "request_degraded": request_degraded,
     }
 
-    # Step 2: forward each event as the nodes produce it, tracking the draft the employee sees.
+    # Step 2: use Postgres if it can answer. A turn must not fail because a database did.
+    agent_graph = services.agent_graph
+    if not await services.checkpoint_store.is_available():
+        agent_graph = services.in_memory_graph
+        graph_input["request_degraded"] = [*request_degraded, DEGRADED_IN_MEMORY_CHECKPOINTS]
+
+    # Step 3: forward each event as the nodes produce it, tracking the draft the employee sees.
     draft = ""
     try:
         # `subgraphs=True` is what forwards events from the research subgraph to the panel.
-        async for stream_item in services.agent_graph.astream(
+        async for stream_item in agent_graph.astream(
             graph_input,
             run_config,
             context=services.agent_dependencies,
@@ -146,8 +153,8 @@ async def stream_chat_turn(
                 draft = "" if activity_event.get("reset") else draft + activity_event["text"]
             yield as_sse_message(activity_event)
 
-        # Step 3: send the authoritative answer, and then the trace link.
-        final_state = await services.agent_graph.aget_state(run_config)
+        # Step 4: send the authoritative answer, and then the trace link.
+        final_state = await agent_graph.aget_state(run_config)
         yield as_sse_message(build_final_event(final_state.values, draft))
         trace_url = await find_trace_url(
             run_id, services.langsmith_project, services.api_limits.trace_lookup_timeout_s

@@ -40,6 +40,14 @@ def search():
     return RecordingSearch()
 
 
+class FakeCheckpointStore:
+    def __init__(self):
+        self.available = True
+
+    async def is_available(self):
+        return self.available
+
+
 @pytest.fixture
 def llm():
     return FakeLlm(plans=[make_plan() for _ in range(4)], answers=["Answer [1]."] * 4)
@@ -54,6 +62,8 @@ async def client(search, llm, monkeypatch):
     app = create_app(use_lifespan=False)
     app.state.services = ApplicationServices(
         agent_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
+        in_memory_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
+        checkpoint_store=FakeCheckpointStore(),
         agent_dependencies=make_agent_dependencies(llm, search),
         jwt_secret=JWT_SECRET,
         role_access=get_role_access(),
@@ -293,3 +303,31 @@ async def test_too_many_requests_get_a_429_before_the_stream_opens(client):
 
     assert response.status_code == 429
     assert int(response.headers["retry-after"]) > 0
+
+
+@pytest.mark.faults
+async def test_a_postgres_outage_still_answers_and_says_so(client, search):
+    client._transport.app.state.services.checkpoint_store.available = False
+    headers = await sign_in(client)
+
+    _, events = await post_chat(client, headers)
+
+    final_event = next(event for event in events if event["type"] == "final")
+    assert final_event["answer"]
+    assert "postgres_unavailable_in_memory_checkpoints" in final_event["degraded"]
+
+
+async def test_an_invalid_request_gets_a_structured_422_and_no_echo(client):
+    # Attack: a malformed thread id. The reply must name the field, not repeat the input.
+    headers = await sign_in(client)
+
+    response = await client.post(
+        "/chat",
+        json={"message": "Hello", "thread_id": "'; DROP TABLE checkpoints; --"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "invalid_request"
+    assert response.json()["problems"][0]["field"] == "body.thread_id"
+    assert "DROP TABLE" not in response.text

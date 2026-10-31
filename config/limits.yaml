@@ -72,6 +72,8 @@ api:
   trace_lookup_timeout_s: 3.0
   # Steps a graph may take in one turn, which stops any runaway loop.
   graph_recursion_limit: 25
+  # Seconds to reach Postgres, before a turn falls back to in-memory checkpoints.
+  postgres_timeout_s: 2.0
 
 sandbox:
   # Seconds of CPU that generated code may use. Waiting on a helper does not count (rule 7).
