@@ -4,16 +4,19 @@ Keeping these out of `AgentState` means they are never written to a checkpoint, 
 can run the real graph with fakes.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
-from agent.llm_gateway import DraftResetHandler, GatewayResult, TextHandler
-from config.settings import ResearchLimits, SandboxLimits
+from agent.llm_gateway import DraftResetHandler, GatewayResult, TextHandler, ToolCallRequest
+from config.settings import ResearchLimits, SandboxLimits, ToolLimits
 from retrieval.catalog import DocumentCatalog
 from retrieval.models import DocumentFilters, SearchResult, UserContext
+from tools.models import AuditRecorder, McpCaller
+from tools.registry import ToolRegistry
 
 
 class LlmClient(Protocol):
@@ -26,6 +29,15 @@ class LlmClient(Protocol):
         output_schema: type[OutputSchema],
     ) -> GatewayResult[OutputSchema]:
         """Return a validated object from the first usable model."""
+        ...
+
+    async def generate_tool_calls(
+        self,
+        route_name: str,
+        messages: list[BaseMessage],
+        tool_schemas: Sequence[dict[str, Any]],
+    ) -> GatewayResult[list[ToolCallRequest]]:
+        """Return the tools a model chose, from those it was offered."""
         ...
 
     async def stream_text(
@@ -71,5 +83,7 @@ class AgentDependencies:
     history_message_count: int
     research_limits: ResearchLimits
     sandbox_limits: SandboxLimits
-    # Roles that may run deep research. Step 7 moves this to the tool registry.
-    research_roles: tuple[str, ...]
+    tool_limits: ToolLimits
+    tool_registry: ToolRegistry
+    audit_log: AuditRecorder
+    mcp_client: McpCaller

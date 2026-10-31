@@ -162,3 +162,18 @@ def test_a_plan_that_stopped_early_says_that_its_findings_were_kept():
     )
 
     assert "keeping 4 findings" in description
+
+
+def test_tool_events_show_the_call_and_its_outcome():
+    description = describe_event(
+        {
+            "type": "tool",
+            "tool_name": "mcp.service_catalog",
+            "arguments": {"service_name": "Card Switch"},
+            "status": "ok",
+        }
+    )
+
+    assert "mcp.service_catalog" in description
+    assert "Card Switch" in description
+    assert "ok" in description

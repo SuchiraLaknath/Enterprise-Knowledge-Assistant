@@ -98,3 +98,19 @@ research:
   deadline_s: 120.0
   # Extra attempts for a planner whose code failed, before the fixed template plan.
   plan_regeneration_limit: 1
+
+tools:
+  # Seconds allowed for a knowledge search, including any fallback to local search.
+  search_timeout_s: 15.0
+  # Seconds allowed for one python_analysis run, including the sandbox's CPU budget.
+  analysis_timeout_s: 10.0
+  # Seconds allowed for one call to the MCP server.
+  mcp_timeout_s: 8.0
+  # Seconds allowed to read the audit log.
+  audit_timeout_s: 5.0
+  # Times the tool agent may look at results and call again, which bounds its loop.
+  max_rounds: 3
+  # Tool calls allowed in one turn, however many rounds they take.
+  max_calls_per_turn: 6
+  # Longest tool result kept, so that one result cannot flood the answer's prompt.
+  max_result_characters: 4000

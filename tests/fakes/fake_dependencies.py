@@ -3,9 +3,35 @@
 from agent.dependencies import AgentDependencies
 from config.settings import get_limits, get_role_access
 from retrieval.catalog import DocumentCatalog
+from tools.audit_log import InMemoryAuditLog
+from tools.registry import build_tool_registry
 
 
-def make_agent_dependencies(llm, search, catalog=None, research_limits=None, sandbox_limits=None):
+class FakeMcpClient:
+    """Returns preset data per tool, can be told to fail, and records who called it."""
+
+    def __init__(self, data=None, fails=False):
+        self.data = data or {}
+        self.fails = fails
+        self.calls = []
+
+    async def call_tool(self, tool_name, arguments, user, timeout_s):
+        self.calls.append({"tool_name": tool_name, "arguments": arguments, "user": user})
+        if self.fails:
+            raise ConnectionError("Simulated MCP failure")
+        return self.data.get(tool_name, [])
+
+
+def make_agent_dependencies(
+    llm,
+    search,
+    catalog=None,
+    research_limits=None,
+    sandbox_limits=None,
+    audit_log=None,
+    mcp_client=None,
+    enabled_faults=(),
+):
     limits = get_limits()
     return AgentDependencies(
         llm=llm,
@@ -14,5 +40,10 @@ def make_agent_dependencies(llm, search, catalog=None, research_limits=None, san
         history_message_count=limits.conversation.history_message_count,
         research_limits=research_limits or limits.research,
         sandbox_limits=sandbox_limits or limits.sandbox,
-        research_roles=get_role_access().research_roles,
+        tool_limits=limits.tools,
+        tool_registry=build_tool_registry(
+            limits.tools, get_role_access().role_ranking, enabled_faults
+        ),
+        audit_log=audit_log or InMemoryAuditLog(),
+        mcp_client=mcp_client or FakeMcpClient(),
     )

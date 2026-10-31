@@ -12,7 +12,11 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.runtime import Runtime
 
 from agent.dependencies import AgentDependencies
-from agent.evidence_formatting import format_evidence_documents, format_research_report
+from agent.evidence_formatting import (
+    format_evidence_documents,
+    format_research_report,
+    format_tool_results,
+)
 from agent.llm_gateway import AllModelsFailedError, GatewayResult
 from agent.prompts.response import (
     EVIDENCE_ACKNOWLEDGEMENT,
@@ -22,6 +26,7 @@ from agent.prompts.response import (
     NO_EVIDENCE_MESSAGE,
     RESEARCH_MESSAGE_TEMPLATE,
     RESPONSE_SYSTEM_PROMPT,
+    TOOL_RESULTS_TEMPLATE,
 )
 from agent.schemas import Citation
 from agent.state import AgentState
@@ -102,7 +107,8 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
     recent_messages = state["messages"][-dependencies.history_message_count :]
     conversation = [remove_citation_markers(message) for message in recent_messages]
 
-    if plan is not None and not plan.needs_documents:
+    tool_results = state.get("tool_results", [])
+    if plan is not None and not plan.needs_documents and not tool_results:
         return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT), *conversation]
 
     research_report = state.get("research_report")
@@ -121,6 +127,10 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
     else:
         evidence_text = NO_EVIDENCE_MESSAGE
         acknowledgement = NO_EVIDENCE_ACKNOWLEDGEMENT
+
+    if tool_results:
+        tool_text = TOOL_RESULTS_TEMPLATE.format(tool_results=format_tool_results(tool_results))
+        evidence_text = f"{evidence_text}\n\n{tool_text}"
 
     # Rule 5: the documents sit in a user turn, followed by a fixed reply that labels them as
     # data, so they never read as instructions. The employee's question comes last.

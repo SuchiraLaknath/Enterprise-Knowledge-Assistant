@@ -149,6 +149,18 @@ class ResearchLimits(BaseModel):
     plan_regeneration_limit: int = Field(ge=0)
 
 
+class ToolLimits(BaseModel):
+    """Bounds on tool calls, so that a slow tool cannot hold a turn open."""
+
+    search_timeout_s: float = Field(gt=0)
+    analysis_timeout_s: float = Field(gt=0)
+    mcp_timeout_s: float = Field(gt=0)
+    audit_timeout_s: float = Field(gt=0)
+    max_rounds: int = Field(gt=0)
+    max_calls_per_turn: int = Field(gt=0)
+    max_result_characters: int = Field(gt=0)
+
+
 class Limits(BaseModel):
     """All operational limits from `config/limits.yaml`."""
 
@@ -161,6 +173,7 @@ class Limits(BaseModel):
     api: ApiLimits
     sandbox: SandboxLimits
     research: ResearchLimits
+    tools: ToolLimits
 
 
 class ModelNames(BaseModel):
@@ -182,10 +195,10 @@ def _read_yaml_file(file_name: str) -> dict[str, object]:
 
 
 class RoleAccess(BaseModel):
-    """The document access levels of each role, and who may research, from `config/rbac.yaml`."""
+    """The document access levels of each role, and their order, from `config/rbac.yaml`."""
 
     roles: dict[str, tuple[str, ...]]
-    research_roles: tuple[str, ...]
+    role_ranking: tuple[str, ...]
 
 
 @lru_cache

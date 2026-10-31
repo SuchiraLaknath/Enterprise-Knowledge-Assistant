@@ -18,6 +18,7 @@ def make_plan(
         "document_types": [],
         "recent_days": None,
         "needs_research": False,
+        "needs_tools": False,
     }
     return Plan(**(values | overrides))
 
@@ -26,7 +27,13 @@ class FakeLlm:
     """Replays preset plans and answers, and records what it was asked."""
 
     def __init__(
-        self, plans=None, answers=None, fails=False, stream_tokens=None, replies=None
+        self,
+        plans=None,
+        answers=None,
+        fails=False,
+        stream_tokens=None,
+        replies=None,
+        tool_call_rounds=None,
     ) -> None:
         self.plans = list(plans or [make_plan()])
         self.answers = list(answers or ["Payments failed because a certificate expired [1]."])
@@ -37,6 +44,9 @@ class FakeLlm:
         # A function instead of a list replies from the messages, for batches sent at once.
         self.replies = replies or {}
         self.received_structured_calls: list[tuple] = []
+        # Each round is a list of `ToolCallRequest`, or an exception to raise.
+        self.tool_call_rounds = list(tool_call_rounds or [])
+        self.received_tool_schemas: list[list[dict]] = []
 
     async def generate_structured(self, route_name, messages, output_schema):
         self.received_structured_calls.append((output_schema, list(messages)))
@@ -49,6 +59,15 @@ class FakeLlm:
                 raise reply
             return GatewayResult(reply, "fake:model")
         return GatewayResult(self.plans.pop(0), "fake:model")
+
+    async def generate_tool_calls(self, route_name, messages, tool_schemas):
+        self.received_tool_schemas.append(list(tool_schemas))
+        if self.fails:
+            raise AllModelsFailedError(route_name, ["fake:model"])
+        round_reply = self.tool_call_rounds.pop(0) if self.tool_call_rounds else []
+        if isinstance(round_reply, Exception):
+            raise round_reply
+        return GatewayResult(round_reply, "fake:model")
 
     async def stream_text(self, route_name, messages, on_text, on_draft_reset):
         self.received_answer_messages.append(list(messages))

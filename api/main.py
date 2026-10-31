@@ -39,6 +39,9 @@ from retrieval.catalog import DocumentCatalog
 from retrieval.hybrid import load_bm25_encoder
 from retrieval.pinecone_client import PineconeSearchBackend
 from retrieval.search import DocumentSearchService
+from tools.audit_log import PostgresAuditLog
+from tools.mcp_client import McpClient
+from tools.registry import build_tool_registry
 
 logger = structlog.get_logger()
 
@@ -110,6 +113,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await connection_pool.open()
     checkpointer = AsyncPostgresSaver(connection_pool, serde=create_checkpoint_serializer())
     await checkpointer.setup()
+    audit_log = PostgresAuditLog(connection_pool)
+    await audit_log.setup()
 
     async with PineconeSearchBackend(settings, model_names) as search_backend:
         # Step 3: assemble the services that the graph uses.
@@ -139,7 +144,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 history_message_count=limits.conversation.history_message_count,
                 research_limits=limits.research,
                 sandbox_limits=limits.sandbox,
-                research_roles=get_role_access().research_roles,
+                tool_limits=limits.tools,
+                tool_registry=build_tool_registry(
+                    limits.tools, get_role_access().role_ranking, settings.enabled_faults
+                ),
+                audit_log=audit_log,
+                mcp_client=McpClient(settings.mcp_url, settings.enabled_faults),
             ),
             jwt_secret=settings.jwt_secret.get_secret_value(),
             role_access=get_role_access(),

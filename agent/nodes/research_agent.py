@@ -39,6 +39,7 @@ from api.events import (
 )
 from config.settings import SandboxLimits
 from security.sandbox import run_sandboxed
+from tools.registry import DEEP_RESEARCH_TOOL
 
 logger = structlog.get_logger()
 
@@ -60,7 +61,7 @@ async def check_research_access(
     # `research_agent` is the one node the main graph sees, so it opens here and closes at the
     # subgraph's last step. The nodes in between report as steps inside it.
     emit_node_started(NODE_NAME)
-    if state["user"].role in runtime.context.research_roles:
+    if runtime.context.tool_registry.is_role_allowed(DEEP_RESEARCH_TOOL, state["user"].role):
         return {"access_confirmed": True}
 
     logger.warning("research_denied", role=state["user"].role)

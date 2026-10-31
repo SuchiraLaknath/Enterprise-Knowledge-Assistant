@@ -15,12 +15,13 @@ from agent.prompts.supervisor import SUPERVISOR_SYSTEM_PROMPT
 from agent.schemas import Plan
 from agent.state import AgentState, ResearchState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
+from tools.registry import DEEP_RESEARCH_TOOL
 
 NODE_NAME = "supervisor"
 # Planning needs the same strong models as answering, so it shares their route.
 PLANNING_ROUTE = "response"
 
-NextNode = Literal["retrieval_agent", "research_agent", "response_agent"]
+NextNode = Literal["retrieval_agent", "research_agent", "tool_agent", "response_agent"]
 
 DEGRADED_MODEL_FALLBACK = "supervisor_used_fallback_model"
 DEGRADED_NO_PLAN = "supervisor_plan_unavailable"
@@ -55,6 +56,7 @@ def _fallback_plan(user_text: str) -> Plan:
         recent_days=None,
         # With no model to plan, there is none to write research code or sub-agent replies.
         needs_research=False,
+        needs_tools=False,
     )
 
 
@@ -93,7 +95,9 @@ async def supervisor(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
 
     # Rule 1: the plan may ask for research, but the verified role decides if it happens.
     wants_research = plan.needs_documents and plan.needs_research
-    research_allowed = wants_research and state["user"].role in runtime.context.research_roles
+    research_allowed = wants_research and runtime.context.tool_registry.is_role_allowed(
+        DEEP_RESEARCH_TOOL, state["user"].role
+    )
     turn_notice = RESEARCH_LIMIT_NOTICE if wants_research and not research_allowed else None
 
     emit_node_finished(NODE_NAME)
@@ -108,16 +112,20 @@ async def supervisor(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
 def _select_next_node(state: AgentState) -> tuple[NextNode, str]:
     """Return the next node and the reason, from what has already happened this turn."""
     plan = state["plan"]
-    if plan is None or not plan.needs_documents:
+    if plan is None:
         return "response_agent", "ready to answer"
 
-    research_finished = state.get("research_finished", False)
-    if state.get("research_allowed", False) and not research_finished:
-        return "research_agent", "many documents must be read and compared"
+    if plan.needs_documents:
+        research_finished = state.get("research_finished", False)
+        if state.get("research_allowed", False) and not research_finished:
+            return "research_agent", "many documents must be read and compared"
+        # A research report replaces retrieval. A failed run falls back to it.
+        if state.get("research_report") is None and not state.get("retrieval_finished", False):
+            return "retrieval_agent", "documents are needed"
 
-    # A research report replaces retrieval. A failed run falls back to it.
-    if state.get("research_report") is None and not state.get("retrieval_finished", False):
-        return "retrieval_agent", "documents are needed"
+    # Tools run last, because analysis may need what the searches found.
+    if plan.needs_tools and not state.get("tools_finished", False):
+        return "tool_agent", "live data or a calculation is needed"
     return "response_agent", "ready to answer"
 
 

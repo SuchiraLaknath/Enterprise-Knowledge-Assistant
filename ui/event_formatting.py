@@ -127,12 +127,18 @@ def _describe_research(event: dict[str, Any]) -> str:
     return describe_stage(event) if describe_stage else f"  Research: {event['stage']}"
 
 
+def _describe_tool(event: dict[str, Any]) -> str:
+    """Show a tool call, its arguments and how it ended."""
+    return f"  Tool: {event['tool_name']}({event['arguments']}) -> {event['status']}"
+
+
 EVENT_DESCRIPTIONS = {
     "node": _describe_node,
     "state": _describe_state,
     "route": _describe_route,
     "retrieval": _describe_retrieval,
     "research": _describe_research,
+    "tool": _describe_tool,
 }
 
 

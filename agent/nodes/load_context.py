@@ -23,6 +23,8 @@ async def load_context(state: AgentState) -> dict[str, Any]:
         "research_allowed": False,
         "research_finished": False,
         "research_report": None,
+        "tools_finished": False,
+        "tool_results": Overwrite([]),
         "turn_notice": None,
         "evidence": Overwrite([]),
         "degraded": Overwrite([]),

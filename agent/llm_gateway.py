@@ -68,6 +68,15 @@ class GatewayResult[ResultValue]:
         return [f"{reason_prefix}:{model_spec}" for model_spec in self.failed_model_specs]
 
 
+@dataclass(frozen=True)
+class ToolCallRequest:
+    """One tool a model asked to run. Nothing here is trusted until the registry has checked it."""
+
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+
+
 class ChatModelFactory(Protocol):
     """Creates a chat model, so that tests can supply a fake."""
 
@@ -209,6 +218,39 @@ class LlmGateway:
 
             self._breakers[_provider_of(model_spec)].record_success()
             return GatewayResult(structured_output, model_spec, failures)
+
+        raise AllModelsFailedError(route_name, failures)
+
+    async def generate_tool_calls(
+        self,
+        route_name: str,
+        messages: Sequence[BaseMessage],
+        tool_schemas: Sequence[dict[str, Any]],
+    ) -> GatewayResult[list[ToolCallRequest]]:
+        """Return the tools a model chose, offering only `tool_schemas`.
+
+        The same loop as `generate_structured`, because a tool call is another structured reply.
+        Rule 2: the caller filters `tool_schemas` by role before they get here.
+        """
+        deadline = asyncio.get_running_loop().time() + self._limits.route_deadline_s
+        failures: list[str] = []
+
+        for model_spec in self._usable_model_specs(route_name):
+            try:
+                self._raise_if_fault_enabled(_provider_of(model_spec))
+                chat_model = self._create_model(model_spec, self._limits.structured_max_tokens)
+                model_with_tools = chat_model.bind_tools(list(tool_schemas))
+                async with asyncio.timeout(self._attempt_timeout(deadline)):
+                    reply = await model_with_tools.ainvoke(list(messages))
+            except Exception as error:  # Any failure means trying the next model.
+                self._record_failure(route_name, model_spec, error, failures)
+                continue
+
+            self._breakers[_provider_of(model_spec)].record_success()
+            tool_calls = [
+                ToolCallRequest(call["id"], call["name"], call["args"]) for call in reply.tool_calls
+            ]
+            return GatewayResult(tool_calls, model_spec, failures)
 
         raise AllModelsFailedError(route_name, failures)
 

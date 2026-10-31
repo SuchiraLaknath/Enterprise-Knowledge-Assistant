@@ -7,5 +7,5 @@ roles:
   # Administrators see everything.
   admin: [public, internal, confidential, restricted]
 
-# Roles that may run deep research. A viewer gets normal retrieval and a polite note instead.
-research_roles: [analyst, admin]
+# Roles from least to most trusted. Each tool in `tools/registry.py` names its lowest role here.
+role_ranking: [viewer, analyst, admin]

@@ -13,6 +13,7 @@ from langgraph.graph.message import add_messages
 
 from agent.schemas import Citation, Finding, Plan, ResearchReport
 from retrieval.models import RetrievedChunk, UserContext
+from tools.models import ToolResult
 
 
 class AgentState(TypedDict, total=False):
@@ -30,6 +31,8 @@ class AgentState(TypedDict, total=False):
     research_allowed: bool
     research_finished: bool
     research_report: ResearchReport | None
+    tools_finished: bool
+    tool_results: Annotated[list[ToolResult], operator.add]
     # A fixed sentence added to the answer, such as why deep research was not used.
     turn_notice: str | None
     evidence: Annotated[list[RetrievedChunk], operator.add]

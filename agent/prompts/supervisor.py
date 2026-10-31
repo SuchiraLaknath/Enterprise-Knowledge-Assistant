@@ -26,6 +26,9 @@ Guidance:
 - Set needs_research to true when the answer needs many documents read and compared, such as
   summarising all reports on a topic, finding recurring causes or spotting trends. Keep it false
   for a question about one policy, one incident or one fact, which a normal search answers.
+- Set needs_tools to true when the answer needs live data rather than documents: who someone is
+  or what team they are in, who owns a service, which incidents are open now, the audit log, or
+  counting and comparing what was found. Tools run after any document search.
 - Set recent_days only when the employee asks about a period, such as "last month" (30) or
   "last year" (365).
 

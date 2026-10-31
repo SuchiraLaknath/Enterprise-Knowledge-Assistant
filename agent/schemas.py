@@ -39,6 +39,12 @@ class Plan(BaseModel):
             "reports on a topic or finding recurring causes. False for one specific fact."
         )
     )
+    needs_tools: bool = Field(
+        description=(
+            "True if answering needs live data from a tool: people, services, current incidents, "
+            "the audit log, or a calculation over what was found."
+        )
+    )
 
 
 class ResearchCode(BaseModel):
