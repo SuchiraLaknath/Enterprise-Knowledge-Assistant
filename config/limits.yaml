@@ -54,8 +54,9 @@ llm:
   route_deadline_s: 90.0
   # Retries inside one model. Kept low, because the gateway's next model is the better retry.
   max_retries_per_model: 1
-  # Longest reply for a structured output, such as a plan.
-  structured_max_tokens: 2000
+  # Longest reply for a structured output, such as a plan. Reasoning models count their thinking
+  # here too, and a live run lost a research plan at 2000, so this leaves room for that.
+  structured_max_tokens: 6000
   # Longest reply for a final answer.
   answer_max_tokens: 4000
 

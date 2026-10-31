@@ -128,6 +128,7 @@ def build_evidence_text(state: AgentState) -> tuple[str, str]:
         # Findings replace chunk text, so a large investigation never reloads whole documents.
         evidence_text = RESEARCH_MESSAGE_TEMPLATE.format(
             documents_analysed=research_report.documents_analysed,
+            documents_in_scope=research_report.documents_in_scope,
             report=format_research_report(research_report, evidence),
         )
         acknowledgement = EVIDENCE_ACKNOWLEDGEMENT

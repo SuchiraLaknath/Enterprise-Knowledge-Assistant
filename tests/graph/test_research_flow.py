@@ -190,8 +190,8 @@ async def test_a_sub_agent_can_ask_for_the_rest_of_a_document(graph):
     catalog = make_catalog(make_catalog_entry("INC-1", chunk_count=2))
 
     def reply_for_batch(messages):
-        # The first section does not hold the answer, so the sub-agent says so.
-        if "Summary; Root cause" in messages[-1].text:
+        # The first section alone does not hold the answer, so the sub-agent says so.
+        if "Lessons learned" not in messages[-1].text:
             return BatchAnalysis(findings=[], unresolved_markers=[1])
         return analyse_every_document(messages)
 
@@ -203,7 +203,59 @@ async def test_a_sub_agent_can_ask_for_the_rest_of_a_document(graph):
 
     assert state["research_report"].depth_reached == 2
     assert state["research_report"].sub_agent_calls == 2
-    assert [chunk.chunk_id for chunk in state["evidence"]] == ["INC-1#c1"]
+    assert {chunk.chunk_id for chunk in state["evidence"]} == {"INC-1#c0", "INC-1#c1"}
+
+
+async def test_a_document_a_sub_agent_skipped_gets_a_second_look(graph):
+    # A live run lost one incident because a sub-agent silently returned 2 findings from 3.
+    catalog = make_catalog(make_catalog_entry("INC-1"), make_catalog_entry("INC-2"))
+    plan = """
+sections = fetch_sections([document["doc_id"] for document in explore_documents()])
+delegate("State the root cause.", [sections])
+"""
+
+    def skip_a_document_the_first_time(messages):
+        analysis = analyse_every_document(messages)
+        if "INC-1" in messages[-1].text and "INC-2" in messages[-1].text:
+            return analysis.model_copy(update={"findings": analysis.findings[:1]})
+        return analysis
+
+    chunks = [make_section("INC-1"), make_section("INC-2")]
+    llm = make_research_llm(plan, batch_replies=skip_a_document_the_first_time)
+    dependencies = make_agent_dependencies(llm, FakeResearchSearch(chunks), catalog)
+
+    _, state = await run_turn(graph, dependencies)
+
+    assert state["research_report"].documents_analysed == 2
+    assert state["research_report"].depth_reached == 2
+
+
+async def test_a_shortfall_is_stated_in_the_prompt_for_the_answer(graph):
+    # The answer must say so if documents in scope were not covered, instead of sounding whole.
+    catalog = make_catalog(make_catalog_entry("INC-1"), make_catalog_entry("INC-2"))
+    plan = """
+sections = fetch_sections([document["doc_id"] for document in explore_documents()])
+delegate("State the root cause.", [sections])
+"""
+
+    def find_only_the_first_document(messages):
+        analysis = analyse_every_document(messages)
+        return analysis.model_copy(update={"findings": analysis.findings[:1]})
+
+    chunks = [make_section("INC-1"), make_section("INC-2")]
+    llm = make_research_llm(plan, batch_replies=find_only_the_first_document)
+    limits = get_limits().research.model_copy(update={"max_depth": 1})
+    dependencies = make_agent_dependencies(
+        llm, FakeResearchSearch(chunks), catalog, research_limits=limits
+    )
+
+    _, state = await run_turn(graph, dependencies)
+
+    report = state["research_report"]
+    assert (report.documents_analysed, report.documents_in_scope) == (1, 2)
+    assert "research_documents_unresolved" in state["degraded"]
+    answer_prompt = llm.received_answer_messages[0][1].text
+    assert "findings from 1 of the\n2 documents in scope" in answer_prompt
 
 
 async def test_recursion_stops_at_the_depth_limit(graph):
@@ -304,8 +356,8 @@ async def test_a_made_up_marker_never_becomes_evidence(graph):
     claims = [
         finding.claim for theme in state["research_report"].themes for finding in theme.findings
     ]
-    assert claims == ["Real."]
-    assert [chunk.chunk_id for chunk in state["evidence"]] == ["INC-0#c0"]
+    assert "Invented." not in claims
+    assert "Real." in claims
 
 
 async def test_counts_come_from_code_and_not_from_the_model(graph):

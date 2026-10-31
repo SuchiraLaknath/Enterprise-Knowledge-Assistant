@@ -99,6 +99,7 @@ def test_a_research_report_shows_depth_and_chunks_read_against_the_total():
             "stage": "report_ready",
             "themes": [{"name": "Certificate expiry", "document_count": 8}],
             "documents_analysed": 22,
+            "documents_in_scope": 24,
             "chunks_read": 24,
             "chunks_available": 150,
             "depth_reached": 2,
@@ -106,7 +107,7 @@ def test_a_research_report_shows_depth_and_chunks_read_against_the_total():
         }
     )
 
-    assert "22 documents analysed" in description
+    assert "22 of 24 documents analysed" in description
     assert "24 of 150 chunks read" in description
     assert "Depth reached: 2, sub-agents: 9" in description
     assert "8 documents: Certificate expiry" in description

@@ -82,6 +82,7 @@ def test_a_finding_cannot_close_its_own_tag_in_the_report():
     report = ResearchReport(
         themes=theme,
         documents_analysed=1,
+        documents_in_scope=1,
         chunks_read=1,
         chunks_available=1,
         depth_reached=1,
@@ -100,6 +101,7 @@ def test_report_markers_match_positions_in_the_evidence():
     report = ResearchReport(
         themes=build_themes([ThemeDraft(name="T", summary="s", finding_ids=["F2"])], findings),
         documents_analysed=2,
+        documents_in_scope=2,
         chunks_read=2,
         chunks_available=2,
         depth_reached=1,

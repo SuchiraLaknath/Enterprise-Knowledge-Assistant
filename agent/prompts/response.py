@@ -40,14 +40,16 @@ Documents retrieved for this question:
 {documents}"""
 
 RESEARCH_MESSAGE_TEMPLATE = """\
-Research report for this question, covering {documents_analysed} documents. Each <document> tag
-holds one checked finding from a source document, and its id number is the citation for that
-finding. Themes are listed with their counts, which were calculated from the findings.
+Research report for this question, with findings from {documents_analysed} of the
+{documents_in_scope} documents in scope. Each <document> tag holds one checked finding from a
+source document, and its id number is the citation for that finding. Themes are listed with their
+counts, which were calculated from the findings.
 
 Answer with the themes, largest first. Use the counts exactly as given, say how many documents
-were covered and which dates they span, and cite the findings behind each theme. Any period the
-employee asked about has already been applied, so the documents here are the ones in scope.
-Keep the answer concise: summarise each theme, rather than listing every finding.
+were covered and which dates they span, and cite the findings behind each theme. If some
+documents in scope were not covered, say so plainly. Any period the employee asked about has
+already been applied, so the documents here are the ones in scope. Keep the answer concise:
+summarise each theme, rather than listing every finding.
 
 {report}"""
 

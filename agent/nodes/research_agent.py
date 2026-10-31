@@ -180,6 +180,7 @@ async def research_runner(
         "sub_agent_calls_used": session.sub_agents.sub_agent_calls,
         "run_deadline": run_deadline,
         "chunks_read": session.sub_agents.chunks_read,
+        "documents_in_scope": len(session.sub_agents.documents_in_scope),
         "depth_reached": session.sub_agents.depth_reached,
     }
 
@@ -200,6 +201,7 @@ def _build_report(
     return ResearchReport(
         themes=themes,
         documents_analysed=len({finding.doc_id for finding in state["findings"]}),
+        documents_in_scope=state["documents_in_scope"],
         chunks_read=state["chunks_read"],
         chunks_available=dependencies.document_catalog.summarize(state["user"]).chunk_count,
         depth_reached=state["depth_reached"],
@@ -221,6 +223,7 @@ def _emit_report_ready(report: ResearchReport) -> None:
             for theme in report.themes
         ],
         documents_analysed=report.documents_analysed,
+        documents_in_scope=report.documents_in_scope,
         chunks_read=report.chunks_read,
         chunks_available=report.chunks_available,
         depth_reached=report.depth_reached,

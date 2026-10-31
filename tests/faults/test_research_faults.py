@@ -150,6 +150,17 @@ async def test_the_template_reads_the_whole_collection_when_it_can_be_listed():
     assert state["research_report"].documents_analysed == 3
 
 
+async def test_the_template_batch_size_never_forces_a_split():
+    # A live run lost 4 of 24 incidents: 48 sections made batches of 7, each split in two, and
+    # the 14 batches overran the limit of 8 at the second level.
+    limits = get_limits().research
+    section_count = limits.max_batches_per_level * limits.sub_agent_chunk_limit
+    batch_size = (section_count + limits.max_batches_per_level - 1) // limits.max_batches_per_level
+
+    assert batch_size == limits.sub_agent_chunk_limit
+    assert "+ MAX_BATCHES - 1) // MAX_BATCHES" in TEMPLATE_PLAN_CODE
+
+
 async def test_when_every_plan_fails_the_turn_uses_plain_retrieval():
     llm = make_llm(
         [INVALID_PLAN, INVALID_PLAN],

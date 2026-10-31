@@ -36,6 +36,7 @@ TOP_LEVEL = 1
 DEGRADED_BATCH_FAILED = "research_batch_failed"
 DEGRADED_BATCH_TRUNCATED = "research_batch_truncated"
 DEGRADED_BUDGET_REACHED = "research_budget_reached"
+DEGRADED_DOCUMENTS_UNRESOLVED = "research_documents_unresolved"
 DEGRADED_MODEL_FALLBACK = "research_used_fallback_model"
 
 
@@ -73,6 +74,8 @@ class SubAgentTeam:
         self._note_degraded = note_degraded
         self._sub_agent_gate = asyncio.Semaphore(limits.max_parallel_sub_agents)
         self._analysed_chunk_ids: set[str] = set()
+        # Every document handed to a sub-agent, so that a report can say what was left out.
+        self.documents_in_scope: set[str] = set()
         self._batches_by_depth: Counter[int] = Counter()
         self.sub_agent_calls = sub_agent_calls_used
         self.depth_reached = 0
@@ -92,6 +95,9 @@ class SubAgentTeam:
                 f"delegate accepts at most {self._limits.max_batches_per_level} batches, "
                 f"but {batches_requested} were requested."
             )
+
+        for chunks in chunk_batches:
+            self.documents_in_scope.update(chunk.doc_id for chunk in chunks)
 
         emit_event(
             EventType.RESEARCH,
@@ -131,26 +137,29 @@ class SubAgentTeam:
     async def _follow_up_unresolved(
         self, task: str, analysis: BatchAnalysis, chunks: list[RetrievedChunk], depth: int
     ) -> None:
-        """Read the other sections of documents the sub-agent could not resolve."""
-        unresolved_doc_ids = sorted(
-            {
-                chunks[marker - 1].doc_id
-                for marker in analysis.unresolved_markers
-                if 1 <= marker <= len(chunks)
-            }
-        )
-        if not unresolved_doc_ids or depth >= self._limits.max_depth:
+        """Take a second, fuller look at documents this sub-agent could not settle.
+
+        That covers what it reported as unresolved, and any document it silently skipped, because
+        a summary that quietly drops a document is worse than one that takes a little longer.
+        """
+        flagged_doc_ids = {
+            chunks[marker - 1].doc_id
+            for marker in analysis.unresolved_markers
+            if 1 <= marker <= len(chunks)
+        }
+        found_doc_ids = {finding.doc_id for finding in self.findings}
+        skipped_doc_ids = {chunk.doc_id for chunk in chunks} - found_doc_ids
+        unresolved_doc_ids = sorted((flagged_doc_ids | skipped_doc_ids) - found_doc_ids)
+        if not unresolved_doc_ids:
+            return
+        if depth >= self._limits.max_depth:
+            self._note_degraded(DEGRADED_DOCUMENTS_UNRESOLVED)
             return
 
-        already_read_ids = {batch_chunk.chunk_id for batch_chunk in chunks}
+        # All of each document's sections, because the one already shown was not enough.
         document_chunks = await self._read_document_chunks(unresolved_doc_ids)
-        unread_chunks = [
-            document_chunk
-            for document_chunk in document_chunks
-            if document_chunk.chunk_id not in already_read_ids
-        ]
-        if unread_chunks:
-            await self._analyse_batch(task, unread_chunks, depth + 1)
+        if document_chunks:
+            await self._analyse_batch(task, document_chunks, depth + 1)
 
     def _reserve_batch(self, depth: int) -> bool:
         """Count one batch at a level, or return False if that level is full (rule 7)."""

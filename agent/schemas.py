@@ -120,6 +120,8 @@ class ResearchReport(BaseModel):
 
     themes: list[ResearchTheme]
     documents_analysed: int
+    # How many documents the plan set out to read, so that a shortfall can be stated.
+    documents_in_scope: int
     chunks_read: int
     chunks_available: int
     depth_reached: int

@@ -105,3 +105,4 @@ class ResearchState(ResearchInput, ResearchOutput, total=False):
     run_deadline: float
     chunks_read: int
     depth_reached: int
+    documents_in_scope: int

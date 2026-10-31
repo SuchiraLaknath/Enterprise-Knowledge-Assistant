@@ -68,6 +68,7 @@ def test_a_finding_in_state_loses_its_claim_and_keeps_its_evidence():
     report = ResearchReport(
         themes=[theme],
         documents_analysed=1,
+        documents_in_scope=1,
         chunks_read=1,
         chunks_available=1,
         depth_reached=1,

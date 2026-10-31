@@ -98,7 +98,8 @@ def _describe_plan_failed(event: dict[str, Any]) -> str:
 def _describe_report_ready(event: dict[str, Any]) -> str:
     """Show the themes and how much of the collection was read."""
     lines = [
-        f"  Research: {event['documents_analysed']} documents analysed, "
+        f"  Research: {event['documents_analysed']} of {event['documents_in_scope']} documents "
+        "analysed, "
         f"{event['chunks_read']} of {event['chunks_available']} chunks read",
         f"  Depth reached: {event['depth_reached']}, sub-agents: {event['sub_agent_calls']}",
     ]
