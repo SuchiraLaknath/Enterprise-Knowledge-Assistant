@@ -20,11 +20,10 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import get_environment_settings  # noqa: E402
+from ui.demo_users import DEMO_USERS, format_user_label  # noqa: E402
 from ui.event_formatting import apply_token_event, describe_event, parse_sse_line  # noqa: E402
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
-# The sign-in shortcuts for the demo. The API holds the real user list and checks these.
-DEMO_USERS = {"vimal": "viewer-demo", "nadee": "analyst-demo", "admin": "admin-demo"}
 
 # `st.feedback` reports thumbs as positions, where 1 is thumbs up.
 THUMBS_UP_POSITION = 1
@@ -91,19 +90,24 @@ def show_sign_in() -> None:
         st.warning(st.session_state.pop("sign_in_notice"))
 
     if "access_token" in st.session_state:
-        st.write(f"Signed in as **{st.session_state.username}** ({st.session_state.role})")
-        if st.button("Sign out"):
+        st.write(f"Signed in as **{format_user_label(st.session_state.username)}**")
+        st.caption(DEMO_USERS[st.session_state.username].capabilities)
+        if st.button("New conversation", width="stretch"):
+            start_new_conversation()
+            st.rerun()
+        if st.button("Sign out", width="stretch"):
             del st.session_state["access_token"]
             start_new_conversation()
             st.rerun()
         return
 
-    username = st.selectbox("Demo user", list(DEMO_USERS))
-    if st.button("Sign in"):
+    username = st.selectbox("Demo user", list(DEMO_USERS), format_func=format_user_label)
+    st.caption(DEMO_USERS[username].capabilities)
+    if st.button("Sign in", type="primary", width="stretch"):
         try:
             response = httpx.post(
                 api_url("/auth/login"),
-                json={"username": username, "password": DEMO_USERS[username]},
+                json={"username": username, "password": DEMO_USERS[username].password},
                 timeout=REQUEST_TIMEOUT,
             )
         except httpx.HTTPError:
@@ -290,6 +294,24 @@ def show_chat_history() -> None:
                 show_answer_details(entry["final_event"])
 
 
+def choose_starter_question(question: str) -> None:
+    """Keep the chosen question for the rerun that a button click starts."""
+    st.session_state.starter_question = question
+
+
+def show_starter_questions() -> None:
+    """Fill an empty chat with questions that show what this user can do."""
+    st.write("Try one of these questions, or type your own below.")
+    for question in DEMO_USERS[st.session_state.username].starter_questions:
+        st.button(
+            question,
+            key=f"starter_{question}",
+            on_click=choose_starter_question,
+            args=(question,),
+            width="stretch",
+        )
+
+
 def main() -> None:
     """Lay out the page and handle one interaction."""
     st.set_page_config(page_title="Knowledge Assistant", layout="wide")
@@ -301,9 +323,6 @@ def main() -> None:
         st.title("Knowledge Assistant")
         st.caption("Commercial Bank internal assistant. All data is mock data.")
         show_sign_in()
-        if "access_token" in st.session_state and st.button("New conversation"):
-            start_new_conversation()
-            st.rerun()
 
     chat_column, activity_column = st.columns([3, 2])
     with activity_column:
@@ -330,6 +349,7 @@ def main() -> None:
         APPROVAL_WAITING_HINT if waiting_for_decision else MESSAGE_BOX_HINT,
         disabled=waiting_for_decision,
     )
+    message = message or st.session_state.pop("starter_question", None)
     with conversation_panel:
         show_chat_history()
         if message:
@@ -337,6 +357,8 @@ def main() -> None:
             # The turn may have paused, and the message box above was drawn before it did.
             if "pending_approval" in st.session_state:
                 st.rerun()
+        elif not st.session_state.chat_history:
+            show_starter_questions()
         show_pending_approval(activity_panel)
 
 

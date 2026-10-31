@@ -115,3 +115,38 @@ def test_an_expired_session_signs_the_user_out():
     assert [notice.value for notice in app.sidebar.warning] == [
         "Your session has expired. Please sign in again."
     ]
+
+
+def test_the_user_list_shows_each_type_of_user():
+    app = render_page(signed_in=False)
+
+    assert list(app.sidebar.selectbox[0].options) == [
+        "vimal - viewer",
+        "nadee - analyst",
+        "admin - admin",
+    ]
+
+
+def test_the_sidebar_shows_the_signed_in_user_with_their_type():
+    app = render_page(signed_in=True)
+
+    assert any("vimal - viewer" in block.value for block in app.sidebar.markdown)
+
+
+def test_an_empty_chat_offers_questions_that_send_when_clicked():
+    app = render_page(signed_in=True)
+    answer_line = 'data: {"type": "final", "answer": "Five days.", "citations": [], "degraded": []}'
+
+    starter_button = next(button for button in app.button if button.key.startswith("starter_"))
+    with patch(
+        "httpx.stream", return_value=make_streamed_response(event_lines=[answer_line])
+    ) as stream:
+        starter_button.click().run()
+
+    assert not app.exception
+    assert (
+        stream.call_args.kwargs["json"]["message"]
+        == "How many days of annual leave can I carry over?"
+    )
+    # The chat is no longer empty, so the suggestions make way for the conversation.
+    assert not [button for button in app.button if button.key and button.key.startswith("starter_")]
