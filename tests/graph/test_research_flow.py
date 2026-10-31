@@ -7,7 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.nodes.research_agent import DEGRADED_ROLE_DENIED, build_research_agent
 from agent.nodes.supervisor import RESEARCH_LIMIT_NOTICE
-from agent.rlm.helpers import DEGRADED_BUDGET_REACHED
+from agent.rlm.sub_agents import DEGRADED_BUDGET_REACHED
 from agent.schemas import (
     BatchAnalysis,
     ExtractedFinding,

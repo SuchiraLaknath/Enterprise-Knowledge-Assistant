@@ -26,8 +26,8 @@ from langgraph.runtime import Runtime
 from agent.dependencies import AgentDependencies
 from agent.nodes.supervisor import latest_user_text
 from agent.rlm.aggregate import build_themes, propose_themes
-from agent.rlm.helpers import ResearchSession
 from agent.rlm.planner import TEMPLATE_PLAN_CODE, has_llm_attempts_left, write_plan_code
+from agent.rlm.research_session import ResearchSession
 from agent.schemas import ResearchReport, ResearchTheme
 from agent.state import ResearchInput, ResearchOutput, ResearchState
 from api.events import (
@@ -176,10 +176,10 @@ async def research_runner(
         "findings": session.findings,
         "evidence": session.evidence_chunks(),
         "degraded": session.degraded,
-        "sub_agent_calls_used": session.sub_agent_calls,
+        "sub_agent_calls_used": session.sub_agents.sub_agent_calls,
         "run_deadline": run_deadline,
-        "chunks_read": session.chunks_read,
-        "depth_reached": session.depth_reached,
+        "chunks_read": session.sub_agents.chunks_read,
+        "depth_reached": session.sub_agents.depth_reached,
     }
 
 

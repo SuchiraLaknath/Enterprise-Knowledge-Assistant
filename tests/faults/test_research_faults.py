@@ -15,8 +15,8 @@ from agent.llm_gateway import AllModelsFailedError
 from agent.nodes import research_agent
 from agent.nodes.research_agent import DEGRADED_INCOMPLETE, DEGRADED_NO_FINDINGS
 from agent.rlm.aggregate import DEGRADED_GROUPED_BY_LABEL
-from agent.rlm.helpers import DEGRADED_BATCH_FAILED
 from agent.rlm.planner import DEGRADED_PLANNER_UNAVAILABLE, TEMPLATE_PLAN_CODE
+from agent.rlm.sub_agents import DEGRADED_BATCH_FAILED
 from agent.schemas import BatchAnalysis, ResearchCode, ThemeGrouping
 from config.settings import SandboxLimits, get_limits
 from retrieval.models import DegradedReason, SearchResult, UserContext

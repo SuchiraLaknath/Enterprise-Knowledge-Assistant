@@ -5,7 +5,7 @@ spells out the helpers and the allowed syntax, because refused code costs a whol
 planner sees counts and no retrieved text. Values that could still carry words from an earlier
 answer sit in <untrusted_text> tags, so that they are read as data (rule 5).
 
-`SUB_AGENT_SYSTEM_PROMPT` is used by each sub-agent in `agent/rlm/helpers.py`. It reads a small
+`SUB_AGENT_SYSTEM_PROMPT` is used by each sub-agent in `agent/rlm/sub_agents.py`. It reads a small
 batch of sections as data and returns typed findings.
 
 `AGGREGATOR_SYSTEM_PROMPT` is used by the `research_aggregator` node, which groups findings
