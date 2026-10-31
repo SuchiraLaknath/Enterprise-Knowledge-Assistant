@@ -71,7 +71,7 @@ flowchart TD
 | `validator` | Checks citations, brand rules and answer validity | `fast` |
 | `memory_writer` | Stores the summary, user facts and doc ids | `fast` |
 
-Workers return typed records with evidence ids to the supervisor, never free text. Parallel work uses LangGraph `Send`. Every loop is bounded by a named retry counter and by `recursion_limit`.
+Workers return typed records with evidence ids to the supervisor, never free text. Parallel work runs with `asyncio.gather`, in namespace search and in research sub-agents, because the sub-agents are started from inside the sandboxed plan rather than by a graph edge. Every loop is bounded by a named retry counter and by `recursion_limit`.
 
 ### Who owns which state
 
@@ -136,7 +136,7 @@ Four choices keep the result honest:
 - **Code does the counting.** The model decides which findings belong together, and code counts the documents, so a figure in an answer cannot be invented.
 - **The answer uses findings, not chunks,** so the final prompt stays small however many documents were read.
 
-The activity panel shows the generated plan, the batches, the recursion depth, and the chunks read against the total available. Viewers get normal retrieval with a note ([ADR 0003](adr/0003-viewer-research-limit.md)), and the sandbox's limits are in [ADR 0001](adr/0001-sandbox-limits.md).
+The activity panel shows the generated plan, the batches, the recursion depth, and the chunks read against the total available. The real measure of coverage is documents analysed: in the payment-outage demo an analyst's plan reads all 22 incidents in scope, using 22 of the 154 chunks they may read, because it fetches only the section holding each root cause. Viewers get normal retrieval with a note ([ADR 0003](adr/0003-viewer-research-limit.md)), and the sandbox's limits are in [ADR 0001](adr/0001-sandbox-limits.md).
 
 ## Security layers
 
