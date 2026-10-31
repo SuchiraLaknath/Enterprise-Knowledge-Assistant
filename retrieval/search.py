@@ -5,6 +5,7 @@ Pinecone is known to be down, fall back to local keyword search if needed, reran
 to, and confirm access last. Each fallback used is named in the result, so the UI can show it.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 
 import structlog
@@ -64,14 +65,17 @@ class DocumentSearchService:
         document_filters: DocumentFilters | None = None,
         namespaces: tuple[str, ...] | None = None,
         use_reranker: bool = True,
+        result_count: int | None = None,
     ) -> SearchResult:
         """Return the best chunks this user may read.
 
         Research passes `use_reranker=False`, because its many searches would otherwise use
-        up the monthly rerank quota.
+        up the monthly rerank quota. It also asks for a larger `result_count`, because it
+        surveys a topic rather than looking for the few best passages.
         """
         active_filters = document_filters or DocumentFilters()
         active_namespaces = namespaces or self._limits.namespaces
+        final_result_count = result_count or self._limits.final_result_count
 
         # Step 1: try hybrid search, unless recent failures show that Pinecone is down.
         hybrid_attempt = await self._try_hybrid_search(
@@ -85,7 +89,7 @@ class DocumentSearchService:
                 user,
                 active_namespaces,
                 active_filters,
-                self._limits.final_result_count,
+                final_result_count,
             )
             return SearchResult(
                 chunks=keep_permitted_chunks(local_chunks, user),
@@ -94,7 +98,7 @@ class DocumentSearchService:
 
         # Step 3: choose the final short list.
         final_chunks, rank_degraded = await self._rank_final_chunks(
-            query_text, hybrid_attempt.outcome.chunks, use_reranker
+            query_text, hybrid_attempt.outcome.chunks, use_reranker, final_result_count
         )
 
         # Step 4: Rule 2, confirm access on the final results, whichever path produced them.
@@ -103,6 +107,52 @@ class DocumentSearchService:
             degraded=[*hybrid_attempt.degraded, *rank_degraded],
             dense_weight=hybrid_attempt.outcome.dense_weight,
         )
+
+    @traceable(name="fetch_chunks", **RETRIEVER_TRACE_OPTIONS)
+    async def fetch_chunks(
+        self, chunk_ids_by_namespace: dict[str, list[str]], user: UserContext
+    ) -> SearchResult:
+        """Return the named chunks this user may read, falling back to the local copy.
+
+        Rule 2: fetching by id bypasses the query filter, so access is checked on what comes
+        back, whichever path produced it.
+        """
+        degraded: list[str] = []
+        if self._circuit_breaker.allows_request():
+            try:
+                fetched_chunks = await self._fetch_from_pinecone(chunk_ids_by_namespace)
+            except Exception as error:  # Any Pinecone failure leads to the same fallback.
+                self._circuit_breaker.record_failure()
+                logger.warning("fetch_chunks_failed", error=type(error).__name__)
+                degraded.append(DegradedReason.PINECONE_UNAVAILABLE)
+            else:
+                self._circuit_breaker.record_success()
+                return SearchResult(chunks=keep_permitted_chunks(fetched_chunks, user))
+        else:
+            degraded.append(DegradedReason.PINECONE_CIRCUIT_OPEN)
+
+        all_chunk_ids = [
+            chunk_id for chunk_ids in chunk_ids_by_namespace.values() for chunk_id in chunk_ids
+        ]
+        local_chunks = self._local_keyword_index.fetch_chunks(all_chunk_ids, user)
+        return SearchResult(
+            chunks=keep_permitted_chunks(local_chunks, user),
+            degraded=[*degraded, DegradedReason.LOCAL_KEYWORD_SEARCH],
+        )
+
+    async def _fetch_from_pinecone(
+        self, chunk_ids_by_namespace: dict[str, list[str]]
+    ) -> list[RetrievedChunk]:
+        """Fetch from each namespace at once, because one document set can span departments."""
+        fetches = [
+            asyncio.wait_for(
+                self._backend.fetch_chunks(namespace, chunk_ids),
+                timeout=self._limits.pinecone_timeout_s,
+            )
+            for namespace, chunk_ids in chunk_ids_by_namespace.items()
+        ]
+        chunks_by_namespace = await asyncio.gather(*fetches)
+        return [chunk for namespace_chunks in chunks_by_namespace for chunk in namespace_chunks]
 
     async def _try_hybrid_search(
         self,
@@ -138,10 +188,13 @@ class DocumentSearchService:
         return _HybridAttempt(outcome, unavailable_namespaces)
 
     async def _rank_final_chunks(
-        self, query_text: str, candidate_chunks: list[RetrievedChunk], use_reranker: bool
+        self,
+        query_text: str,
+        candidate_chunks: list[RetrievedChunk],
+        use_reranker: bool,
+        result_count: int,
     ) -> tuple[list[RetrievedChunk], list[str]]:
         """Return the final chunks, keeping hybrid order if reranking is off or fails."""
-        result_count = self._limits.final_result_count
         hybrid_order_chunks = candidate_chunks[:result_count]
         if not use_reranker:
             return hybrid_order_chunks, []

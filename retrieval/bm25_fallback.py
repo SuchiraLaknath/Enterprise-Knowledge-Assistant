@@ -13,29 +13,9 @@ from langsmith import traceable
 
 from config.settings import ChunkingLimits
 from ingestion.chunk import DocumentChunk, chunk_document, load_documents
-from retrieval.filters import is_access_allowed
+from retrieval.filters import is_access_allowed, matches_document_filters
 from retrieval.models import DocumentFilters, RetrievedChunk, SparseEncoder, UserContext
 from retrieval.tracing import RETRIEVER_TRACE_OPTIONS
-
-
-def _matches_filters(chunk: DocumentChunk, document_filters: DocumentFilters) -> bool:
-    """Apply the same narrowing as `build_metadata_filter`, so the two must change together."""
-    if (
-        document_filters.document_types
-        and chunk.document_type not in document_filters.document_types
-    ):
-        return False
-    if (
-        document_filters.created_after_ts is not None
-        and chunk.created_ts < document_filters.created_after_ts
-    ):
-        return False
-    if (
-        document_filters.created_before_ts is not None
-        and chunk.created_ts > document_filters.created_before_ts
-    ):
-        return False
-    return True
 
 
 class LocalKeywordIndex:
@@ -90,7 +70,9 @@ class LocalKeywordIndex:
             # Rule 2: the access check runs first, so a blocked chunk is never even scored.
             if not is_access_allowed(user, chunk.access_level):
                 continue
-            if chunk.department not in namespaces or not _matches_filters(chunk, document_filters):
+            if chunk.department not in namespaces:
+                continue
+            if not matches_document_filters(chunk, document_filters):
                 continue
 
             score = sum(
@@ -103,3 +85,18 @@ class LocalKeywordIndex:
 
         scored_chunks.sort(key=lambda chunk: chunk.score, reverse=True)
         return scored_chunks[:result_count]
+
+    def fetch_chunks(self, chunk_ids: list[str], user: UserContext) -> list[RetrievedChunk]:
+        """Return the named chunks this user may read, for when Pinecone cannot fetch them.
+
+        A fetch has no query, so there is no relevance score, and each chunk scores zero.
+        """
+        requested_chunk_ids = set(chunk_ids)
+        fetched_chunks = []
+        for chunk, _ in self._chunks_with_term_weights:
+            # Rule 2: fetching by id has no query filter, so access is checked here.
+            if chunk.chunk_id in requested_chunk_ids and is_access_allowed(
+                user, chunk.access_level
+            ):
+                fetched_chunks.append(RetrievedChunk(score=0.0, **asdict(chunk)))
+        return fetched_chunks

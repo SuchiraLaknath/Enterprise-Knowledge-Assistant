@@ -4,9 +4,23 @@ Rule 1: access always comes from the verified `UserContext`. `DocumentFilters` h
 access-level field, so even a value chosen by the LLM cannot widen what a user can read.
 """
 
-from typing import Any
+from typing import Any, Protocol
 
 from retrieval.models import DocumentFilters, RetrievedChunk, UserContext
+
+
+class FilterableDocument(Protocol):
+    """The fields that narrowing reads, shared by chunks and catalog entries."""
+
+    @property
+    def document_type(self) -> str:
+        """Return the kind of document, such as `incident`."""
+        ...
+
+    @property
+    def created_ts(self) -> int:
+        """Return the creation time as an epoch number."""
+        ...
 
 
 def build_metadata_filter(user: UserContext, document_filters: DocumentFilters) -> dict[str, Any]:
@@ -27,6 +41,31 @@ def build_metadata_filter(user: UserContext, document_filters: DocumentFilters) 
         metadata_filter["created_ts"] = created_ts_range
 
     return metadata_filter
+
+
+def matches_document_filters(
+    document: FilterableDocument, document_filters: DocumentFilters
+) -> bool:
+    """Apply in Python the same narrowing that `build_metadata_filter` asks Pinecone for.
+
+    Read paths with no Pinecone query use this, so the two functions must change together.
+    """
+    if (
+        document_filters.document_types
+        and document.document_type not in document_filters.document_types
+    ):
+        return False
+    if (
+        document_filters.created_after_ts is not None
+        and document.created_ts < document_filters.created_after_ts
+    ):
+        return False
+    if (
+        document_filters.created_before_ts is not None
+        and document.created_ts > document_filters.created_before_ts
+    ):
+        return False
+    return True
 
 
 def is_access_allowed(user: UserContext, access_level: str) -> bool:

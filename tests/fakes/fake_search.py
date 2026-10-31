@@ -52,16 +52,19 @@ class FakeSearchBackend:
         failing_namespaces: tuple[str, ...] = (),
         embedding_fails: bool = False,
         rerank_fails: bool = False,
+        fetch_fails: bool = False,
     ) -> None:
         self.results_by_namespace = results_by_namespace or {}
         self.failing_namespaces = failing_namespaces
         self.embedding_fails = embedding_fails
         self.rerank_fails = rerank_fails
+        self.fetch_fails = fetch_fails
         self.queried_namespaces: list[str] = []
         self.received_filters: list[dict[str, Any]] = []
         self.received_sparse_vectors: list[dict[str, list[Any]] | None] = []
         self.received_dense_vectors: list[list[float]] = []
         self.rerank_call_count = 0
+        self.fetched_chunk_ids: list[str] = []
 
     async def embed_query(self, query_text: str) -> list[float]:
         if self.embedding_fails:
@@ -83,6 +86,17 @@ class FakeSearchBackend:
         if namespace in self.failing_namespaces:
             raise ConnectionError(f"Simulated failure in {namespace}")
         return self.results_by_namespace.get(namespace, [])
+
+    async def fetch_chunks(self, namespace: str, chunk_ids: list[str]) -> list[RetrievedChunk]:
+        self.fetched_chunk_ids.extend(chunk_ids)
+        if self.fetch_fails:
+            raise ConnectionError("Simulated fetch failure")
+        # Like Pinecone, an id that does not exist is simply missing, and there is no filter.
+        return [
+            chunk.model_copy(update={"score": 0.0})
+            for chunk in self.results_by_namespace.get(namespace, [])
+            if chunk.chunk_id in chunk_ids
+        ]
 
     async def rerank(
         self, query_text: str, document_texts: list[str], result_count: int

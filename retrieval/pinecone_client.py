@@ -103,6 +103,19 @@ class PineconeSearchBackend:
             for match in response.matches
         ]
 
+    async def fetch_chunks(self, namespace: str, chunk_ids: list[str]) -> list[RetrievedChunk]:
+        """Return the named chunks. Ids that do not exist are simply missing from the result.
+
+        Rule 2: a fetch has no metadata filter, so the caller must check access afterwards. It
+        also has no relevance score, so each chunk scores zero.
+        """
+        self._raise_if_fault_enabled("pinecone")
+        response = await self._index.fetch(ids=chunk_ids, namespace=namespace)
+        return [
+            RetrievedChunk(chunk_id=chunk_id, score=0.0, **vector.metadata)
+            for chunk_id, vector in response.vectors.items()
+        ]
+
     async def rerank(
         self, query_text: str, document_texts: list[str], result_count: int
     ) -> list[RerankedPosition]:

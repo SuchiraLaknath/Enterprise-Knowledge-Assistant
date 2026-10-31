@@ -13,6 +13,7 @@ TRACED_INPUT_NAMES = (
     "document_filters",
     "use_reranker",
     "result_count",
+    "chunk_ids_by_namespace",
 )
 
 TRACED_CHUNK_FIELDS = (

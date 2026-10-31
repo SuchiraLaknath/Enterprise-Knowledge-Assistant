@@ -106,6 +106,10 @@ class SearchBackend(Protocol):
         """Return the best matches from one namespace."""
         ...
 
+    async def fetch_chunks(self, namespace: str, chunk_ids: list[str]) -> list[RetrievedChunk]:
+        """Return the named chunks. This has no filter, so the caller must check access."""
+        ...
+
     async def rerank(
         self, query_text: str, document_texts: list[str], result_count: int
     ) -> list[RerankedPosition]:

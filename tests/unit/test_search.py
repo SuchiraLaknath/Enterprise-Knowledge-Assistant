@@ -150,3 +150,74 @@ async def test_final_check_also_covers_the_local_fallback_path():
     result = await service.search("payment outage", VIEWER)
 
     assert result.chunks == []
+
+
+async def test_fetching_by_id_returns_only_what_the_user_may_read():
+    # Rule 2: an id goes straight to the record, so the query filter never runs.
+    backend = FakeSearchBackend(
+        {
+            "payments": [
+                make_chunk("OPEN#c0", access_level="internal"),
+                make_chunk("SECRET#c0", access_level="confidential"),
+            ]
+        }
+    )
+
+    result = await make_service(backend).fetch_chunks(
+        {"payments": ["OPEN#c0", "SECRET#c0"]}, VIEWER
+    )
+
+    assert [chunk.chunk_id for chunk in result.chunks] == ["OPEN#c0"]
+    assert result.degraded == []
+
+
+async def test_fetching_by_id_checks_access_on_the_fallback_path_too():
+    backend = FakeSearchBackend(fetch_fails=True)
+    local_chunks = [
+        make_local_chunk("OPEN", "internal", "text"),
+        make_local_chunk("SECRET", "confidential", "text"),
+    ]
+
+    result = await make_service(backend, local_chunks).fetch_chunks(
+        {"payments": ["OPEN#c0", "SECRET#c0"]}, VIEWER
+    )
+
+    assert [chunk.chunk_id for chunk in result.chunks] == ["OPEN#c0"]
+    assert "pinecone_unavailable" in result.degraded
+    assert "local_keyword_search" in result.degraded
+
+
+async def test_an_open_circuit_skips_pinecone_when_fetching():
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=30.0)
+    breaker.record_failure()
+    backend = FakeSearchBackend()
+    local_chunks = [make_local_chunk("OPEN", "internal", "text")]
+
+    result = await make_service(backend, local_chunks, breaker).fetch_chunks(
+        {"payments": ["OPEN#c0"]}, VIEWER
+    )
+
+    assert backend.fetched_chunk_ids == []
+    assert [chunk.chunk_id for chunk in result.chunks] == ["OPEN#c0"]
+    assert "pinecone_circuit_open" in result.degraded
+
+
+async def test_fetch_failures_count_towards_the_circuit_breaker():
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=30.0)
+    backend = FakeSearchBackend(fetch_fails=True)
+
+    await make_service(backend, breaker=breaker).fetch_chunks({"payments": ["A#c0"]}, VIEWER)
+
+    assert not breaker.allows_request()
+
+
+async def test_research_can_ask_for_more_than_the_short_list():
+    many_chunks = [make_chunk(f"DOC-{number}#c0") for number in range(12)]
+    backend = FakeSearchBackend({"payments": many_chunks})
+
+    result = await make_service(backend).search(
+        "payment outage", VIEWER, use_reranker=False, result_count=12
+    )
+
+    assert len(result.chunks) == 12
+    assert backend.rerank_call_count == 0
