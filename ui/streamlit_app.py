@@ -10,6 +10,7 @@ Run with: uv run streamlit run ui/streamlit_app.py
 import json
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import get_environment_settings  # noqa: E402
 from ui.demo_users import DEMO_USERS, format_user_label  # noqa: E402
-from ui.event_formatting import apply_token_event, describe_event, parse_sse_line  # noqa: E402
+from ui.event_formatting import (  # noqa: E402
+    TurnStatus,
+    add_activity_event,
+    apply_token_event,
+    describe_degraded,
+    describe_turn_status,
+    parse_sse_line,
+    update_turn_status,
+)
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
 
@@ -32,6 +41,7 @@ UNKNOWN_QUESTION = "(not recorded)"
 MESSAGE_BOX_HINT = "Ask about policies, runbooks, incidents and more"
 APPROVAL_WAITING_HINT = "Approve or reject the action first"
 API_UNREACHABLE_MESSAGE = "The assistant could not be reached. Please try again."
+NO_ACTIVITY_MESSAGE = "Each step of the agent appears here."
 NO_ANSWER_MESSAGE = "No answer arrived. Please try again."
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again."
 # Used only inside this file, between reading the API's reply and drawing the page.
@@ -73,6 +83,7 @@ def start_new_conversation() -> None:
     st.session_state.thread_id = uuid.uuid4().hex
     st.session_state.chat_history = []
     st.session_state.activity_lines = []
+    st.session_state.turn_status = TurnStatus()
     st.session_state.pop("pending_approval", None)
 
 
@@ -155,7 +166,11 @@ def send_rating(final_event: dict[str, Any], thumbs_position: int) -> None:
 def show_answer_details(final_event: dict[str, Any]) -> None:
     """Show the degradation notice, the sources, the trace link and the rating buttons."""
     if final_event.get("degraded"):
-        st.warning(f"Reduced service: {', '.join(final_event['degraded'])}")
+        sentences = describe_degraded(final_event["degraded"])
+        st.warning(f"Reduced service: {' '.join(sentences)}")
+        # The exact ids stay one click away, because they are what an evaluator would look up.
+        with st.expander("Technical details"):
+            st.text("\n".join(final_event["degraded"]))
     show_citations(final_event.get("citations", []))
     if final_event.get("trace_url"):
         st.link_button("View LangSmith trace", final_event["trace_url"])
@@ -191,7 +206,21 @@ def stream_events(path: str, payload: dict[str, Any]) -> Any:
                 yield json.loads(event_data)
 
 
-def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
+@dataclass
+class ActivityView:
+    """The two places on the page that show what the agent is doing."""
+
+    status_line: Any
+    panel: Any
+
+    def refresh(self) -> None:
+        """Redraw both. Rule 9: this is plain text, as the lines can hold words from a model."""
+        self.status_line.text(describe_turn_status(st.session_state.turn_status))
+        activity_text = "\n".join(st.session_state.activity_lines)
+        self.panel.code(activity_text or NO_ACTIVITY_MESSAGE, language=None, wrap_lines=True)
+
+
+def show_streamed_turn(events: Any, activity_view: ActivityView, question: str) -> None:
     """Draw one turn as it arrives. Tokens go to the draft, and `final` replaces them."""
     error_was_shown = False
     with st.chat_message("assistant"):
@@ -201,6 +230,7 @@ def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
 
         try:
             for event in events:
+                update_turn_status(st.session_state.turn_status, event)
                 if event["type"] == "token":
                     draft = apply_token_event(draft, event)
                     # Rule 9: a draft is plain text, so an injected image URL can never load.
@@ -219,10 +249,8 @@ def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
                 else:
                     if event["type"] == "approval":
                         st.session_state.pending_approval = event
-                    activity_line = describe_event(event)
-                    if activity_line:
-                        st.session_state.activity_lines.append(activity_line)
-                        activity_panel.text("\n".join(st.session_state.activity_lines))
+                    add_activity_event(st.session_state.activity_lines, event)
+                activity_view.refresh()
         except httpx.HTTPError:
             st.error(API_UNREACHABLE_MESSAGE)
             error_was_shown = True
@@ -242,18 +270,19 @@ def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
             )
 
 
-def run_chat_turn(message: str, activity_panel: Any) -> None:
+def run_chat_turn(message: str, activity_view: ActivityView) -> None:
     """Send a message, and update the draft and the activity panel as events arrive."""
     st.session_state.chat_history.append({"role": "user", "text": message})
     st.session_state.activity_lines = []
+    st.session_state.turn_status = TurnStatus()
     st.session_state.last_question = message
     with st.chat_message("user"):
         st.text(message)
     payload = {"message": message, "thread_id": st.session_state.thread_id}
-    show_streamed_turn(stream_events("/chat", payload), activity_panel, message)
+    show_streamed_turn(stream_events("/chat", payload), activity_view, message)
 
 
-def run_approval_turn(approved: bool, activity_panel: Any) -> None:
+def run_approval_turn(approved: bool, activity_view: ActivityView) -> None:
     """Send a decision on a paused write tool, and show the rest of the turn."""
     pending_call = st.session_state.pop("pending_approval")
     payload = {
@@ -262,10 +291,12 @@ def run_approval_turn(approved: bool, activity_panel: Any) -> None:
         "approved": approved,
     }
     question = st.session_state.get("last_question", "")
-    show_streamed_turn(stream_events("/approve", payload), activity_panel, question)
+    # A resumed turn carries on with the same activity, so that the whole story stays visible.
+    st.session_state.turn_status.is_finished = False
+    show_streamed_turn(stream_events("/approve", payload), activity_view, question)
 
 
-def show_pending_approval(activity_panel: Any) -> None:
+def show_pending_approval(activity_view: ActivityView) -> None:
     """Ask the person to decide on a paused write tool, showing exactly what would run."""
     pending_call = st.session_state.get("pending_approval")
     if pending_call is None:
@@ -276,10 +307,10 @@ def show_pending_approval(activity_panel: Any) -> None:
         st.text(f"{pending_call['tool_name']}\n{json.dumps(pending_call['arguments'], indent=2)}")
         approve_column, reject_column = st.columns(2)
         if approve_column.button("Approve", key="approve_tool_call"):
-            run_approval_turn(True, activity_panel)
+            run_approval_turn(True, activity_view)
             st.rerun()
         if reject_column.button("Reject", key="reject_tool_call"):
-            run_approval_turn(False, activity_panel)
+            run_approval_turn(False, activity_view)
             st.rerun()
 
 
@@ -327,9 +358,10 @@ def main() -> None:
     chat_column, activity_column = st.columns([3, 2])
     with activity_column:
         st.subheader("Agent activity")
+        status_line = st.empty()
         with st.container(height=PANEL_HEIGHT_PIXELS, key=ACTIVITY_PANEL_KEY, autoscroll=True):
-            activity_panel = st.empty()
-        activity_panel.text("\n".join(st.session_state.activity_lines) or "Waiting for a question.")
+            activity_view = ActivityView(status_line, st.empty())
+        activity_view.refresh()
 
     with chat_column:
         st.subheader("Conversation")
@@ -353,13 +385,13 @@ def main() -> None:
     with conversation_panel:
         show_chat_history()
         if message:
-            run_chat_turn(message, activity_panel)
+            run_chat_turn(message, activity_view)
             # The turn may have paused, and the message box above was drawn before it did.
             if "pending_approval" in st.session_state:
                 st.rerun()
         elif not st.session_state.chat_history:
             show_starter_questions()
-        show_pending_approval(activity_panel)
+        show_pending_approval(activity_view)
 
 
 main()

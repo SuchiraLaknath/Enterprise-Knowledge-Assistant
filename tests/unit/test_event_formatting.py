@@ -1,19 +1,97 @@
+import pytest
+
 from api.events import ResearchStage
+from retrieval.models import DegradedReason
 from ui.event_formatting import (
+    DEGRADED_SENTENCES,
     RESEARCH_STAGE_DESCRIPTIONS,
+    TurnStatus,
+    add_activity_event,
     apply_token_event,
+    describe_degraded,
     describe_event,
+    describe_turn_status,
+    describe_waiting_step,
     parse_sse_line,
+    update_turn_status,
 )
 
 
 def test_node_events_show_the_active_node():
     assert describe_event({"type": "node", "node": "supervisor", "status": "started"}) == (
-        "▶ supervisor"
+        "▶ supervisor: planning the work"
     )
     assert describe_event({"type": "node", "node": "supervisor", "status": "finished"}) == (
-        "✓ supervisor"
+        "✓ supervisor: planning the work"
     )
+
+
+def test_a_finished_node_ticks_its_own_line_and_keeps_its_details_below():
+    lines = []
+    add_activity_event(lines, {"type": "node", "node": "validator", "status": "started"})
+    add_activity_event(
+        lines, {"type": "validation", "check": "validator", "status": "pass", "reasons": []}
+    )
+    add_activity_event(lines, {"type": "node", "node": "validator", "status": "finished"})
+
+    assert lines == ["✓ validator: checking the answer", "  Check validator: pass"]
+
+
+def test_a_node_that_runs_twice_ticks_its_latest_line():
+    # The supervisor runs again after each worker, so an earlier tick must not be disturbed.
+    lines = []
+    for status in ("started", "finished", "started"):
+        add_activity_event(lines, {"type": "node", "node": "supervisor", "status": status})
+    add_activity_event(lines, {"type": "node", "node": "supervisor", "status": "finished"})
+
+    assert lines == ["✓ supervisor: planning the work", "✓ supervisor: planning the work"]
+
+
+def test_a_finished_node_with_no_started_line_is_still_shown():
+    # Nothing may vanish from the panel, even if an event arrives out of order.
+    lines = []
+    add_activity_event(lines, {"type": "node", "node": "new_node", "status": "finished"})
+
+    assert lines == ["✓ new_node"]
+
+
+def test_the_status_line_follows_the_turn():
+    status = TurnStatus()
+    assert describe_turn_status(status) == "Waiting for a question."
+
+    update_turn_status(status, {"type": "node", "node": "retrieval_agent", "status": "started"})
+    update_turn_status(status, {"type": "state", "evidence_count": 8})
+    update_turn_status(status, {"type": "state", "response_retries": 1})
+    assert describe_turn_status(status) == "Now: retrieval_agent | Evidence: 8 | Retries: 1"
+    assert describe_waiting_step(status).startswith("Searching the documents.")
+
+    update_turn_status(status, {"type": "final"})
+    assert describe_turn_status(status) == "Finished | Evidence: 8 | Retries: 1"
+
+
+def test_degraded_ids_become_plain_sentences_once_each():
+    sentences = describe_degraded(
+        [
+            "input_guard_used_fallback_model:anthropic:claude-haiku-5-5",
+            "supervisor_used_fallback_model:anthropic:claude-sonnet-5-5",
+            "pinecone_unavailable",
+            "local_keyword_search",
+        ]
+    )
+
+    assert sentences == [
+        "A backup AI model answered some steps.",
+        "Document search was unavailable, so a local keyword search was used.",
+    ]
+
+
+def test_an_unknown_degraded_id_is_shown_rather_than_hidden():
+    assert describe_degraded(["something_new_failed"]) == ["something_new_failed"]
+
+
+@pytest.mark.parametrize("reason", list(DegradedReason))
+def test_every_retrieval_failure_has_a_plain_sentence(reason):
+    assert reason.value in DEGRADED_SENTENCES
 
 
 def test_state_events_show_the_plan_and_any_degradation():
