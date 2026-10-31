@@ -24,12 +24,15 @@ from tools.mcp_tools import (
     EMPLOYEE_DIRECTORY_TOOL,
     INCIDENT_RECORDS_TOOL,
     SERVICE_CATALOG_TOOL,
+    UPDATE_INCIDENT_STATUS_TOOL,
     EmployeeDirectoryArguments,
     IncidentRecordsArguments,
     ServiceCatalogArguments,
+    UpdateIncidentStatusArguments,
     look_up_employees,
     look_up_incidents,
     look_up_services,
+    update_incident_status,
 )
 from tools.models import ToolArguments, ToolContext, ToolHandler, ToolResult, ToolRisk
 from tools.python_analysis import TOOL_NAME as PYTHON_ANALYSIS_TOOL
@@ -258,6 +261,15 @@ def build_tool_registry(
             risk="read",
             timeout_s=limits.audit_timeout_s,
             handler=view_audit_log,
+        ),
+        ToolDefinition(
+            name=UPDATE_INCIDENT_STATUS_TOOL,
+            description="Change an incident's status. A person must approve this first.",
+            args_schema=UpdateIncidentStatusArguments,
+            min_role="admin",
+            risk="write",
+            timeout_s=limits.mcp_timeout_s,
+            handler=update_incident_status,
         ),
     ]
     return ToolRegistry(definitions, role_ranking, enabled_faults)

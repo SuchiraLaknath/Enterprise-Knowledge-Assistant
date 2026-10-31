@@ -6,10 +6,13 @@ only a request: its arguments are validated, and a name it was never offered is 
 
 The loop is bounded by rounds and by total calls, and a failed tool is recorded rather than
 raised, so the response agent can still answer from what remains.
+
+Rule 3: a write tool never runs in the loop. The first one a model asks for is stored, the graph
+pauses at `human_approval`, and this node runs it on the way back, with the stored arguments.
 """
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
@@ -19,6 +22,7 @@ from agent.evidence_formatting import format_evidence_documents, format_tool_res
 from agent.llm_gateway import AllModelsFailedError, ToolCallRequest
 from agent.nodes.supervisor import latest_user_text
 from agent.prompts.tool_agent import TOOL_AGENT_RESULTS_TEMPLATE, TOOL_AGENT_SYSTEM_PROMPT
+from agent.schemas import PendingToolCall
 from agent.state import AgentState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
 from retrieval.models import RetrievedChunk
@@ -33,6 +37,7 @@ TOOL_ROUTE = "fast"
 DEGRADED_NO_TOOL_MODEL = "tool_selection_unavailable"
 DEGRADED_MODEL_FALLBACK = "tool_agent_used_fallback_model"
 DEGRADED_TOOL_FAILED = "tool_failed"
+NOT_APPROVED_MESSAGE = "This action was not approved, so nothing was changed."
 FAILED_STATUSES = ("error", "timeout")
 # Evidence fields that `python_analysis` may read. This list leaves out the text (rule 7).
 ANALYSIS_RECORD_FIELDS = (
@@ -129,9 +134,23 @@ def _select_offered_tools(
     return offered_tools
 
 
+def _find_write_call(
+    tool_calls: list[ToolCallRequest], dependencies: AgentDependencies
+) -> PendingToolCall | None:
+    """Return the first requested write tool, which must wait for a person (rule 3)."""
+    for tool_call in tool_calls:
+        tool_name = dependencies.tool_registry.resolve_model_name(tool_call.tool_name)
+        definition = dependencies.tool_registry.get_definition(tool_name)
+        if definition is not None and definition.risk == "write":
+            return PendingToolCall(
+                tool_call_id=tool_call.call_id, tool_name=tool_name, arguments=tool_call.arguments
+            )
+    return None
+
+
 async def _run_tool_rounds(
     state: AgentState, dependencies: AgentDependencies, tool_schemas: list[dict[str, Any]]
-) -> tuple[list[ToolResult], list[str]]:
+) -> tuple[list[ToolResult], list[str], PendingToolCall | None]:
     """Let the model call tools and see the results, bounded by rounds and by total calls."""
     limits = dependencies.tool_limits
     tool_results: list[ToolResult] = []
@@ -152,6 +171,11 @@ async def _run_tool_rounds(
         if not selection.value:
             break
 
+        # A write tool stops the round, and the turn pauses before anything changes.
+        pending_call = _find_write_call(selection.value, dependencies)
+        if pending_call is not None:
+            return tool_results, degraded, pending_call
+
         # Calls run at once, up to the turn's limit. Extra requests are ignored.
         allowed_calls = selection.value[: limits.max_calls_per_turn - calls_made]
         calls_made += len(allowed_calls)
@@ -163,20 +187,64 @@ async def _run_tool_rounds(
         )
         if calls_made >= limits.max_calls_per_turn:
             break
-    return tool_results, degraded
+    return tool_results, degraded, None
+
+
+async def _run_approved_call(state: AgentState, dependencies: AgentDependencies) -> dict[str, Any]:
+    """Finish a paused write tool, now that a person has decided."""
+    pending_call = state["pending_approval"]
+    decision = state["approval_decision"]
+    assert pending_call is not None and decision is not None
+
+    if decision.approved and decision.tool_call_id == pending_call.tool_call_id:
+        # Rule 2: `execute` checks the verified role again, and the arguments are the stored ones.
+        context = _build_tool_context(state, dependencies, [])
+        tool_result = await dependencies.tool_registry.execute(
+            pending_call.tool_name, pending_call.arguments, context, approved=True
+        )
+    else:
+        await dependencies.audit_log.record(
+            state["user"], pending_call.tool_name, "rejected", "not approved by a person"
+        )
+        tool_result = ToolResult(
+            tool_name=pending_call.tool_name, status="denied", message=NOT_APPROVED_MESSAGE
+        )
+
+    emit_event(
+        EventType.TOOL,
+        tool_name=pending_call.tool_name,
+        arguments=pending_call.arguments,
+        status=tool_result.status,
+        message=tool_result.message,
+    )
+    return {
+        "tool_results": [tool_result],
+        "pending_approval": None,
+        "approval_decision": None,
+        "tools_finished": True,
+    }
 
 
 async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
     """Offer the tools this role may use, and run what the model asks for."""
     emit_node_started(NODE_NAME)
 
+    # A person has decided on a paused write tool, so finish that and nothing else.
+    if state.get("approval_decision") is not None:
+        approved_update = await _run_approved_call(state, runtime.context)
+        emit_node_finished(NODE_NAME)
+        return approved_update
+
     # Step 1: choose what to offer, and skip the model if there is nothing.
     offered_tools = _select_offered_tools(state, runtime.context)
     tool_results: list[ToolResult] = []
     degraded: list[str] = []
+    pending_call: PendingToolCall | None = None
     if offered_tools:
         tool_schemas = [definition.to_model_schema() for definition in offered_tools]
-        tool_results, degraded = await _run_tool_rounds(state, runtime.context, tool_schemas)
+        tool_results, degraded, pending_call = await _run_tool_rounds(
+            state, runtime.context, tool_schemas
+        )
 
     # Step 2: one failed tool must not fail the turn, but the employee should know about it.
     if any(tool_result.status in FAILED_STATUSES for tool_result in tool_results):
@@ -188,7 +256,13 @@ async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
     return {
         "tool_results": tool_results,
         "evidence": tool_evidence,
+        "pending_approval": pending_call,
         # The supervisor reads this, so that it does not route here a second time.
-        "tools_finished": True,
+        "tools_finished": pending_call is None,
         "degraded": degraded,
     }
+
+
+def choose_after_tool_agent(state: AgentState) -> Literal["human_approval", "supervisor"]:
+    """Pause for a person if a write tool is waiting. Otherwise return to the supervisor."""
+    return "human_approval" if state.get("pending_approval") is not None else "supervisor"

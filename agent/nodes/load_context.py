@@ -53,6 +53,8 @@ async def load_context(state: AgentState, runtime: Runtime[AgentDependencies]) -
         "research_finished": False,
         "research_report": None,
         "tools_finished": False,
+        "pending_approval": None,
+        "approval_decision": None,
         "tool_results": Overwrite([]),
         "turn_notice": None,
         "read_only_tools": False,

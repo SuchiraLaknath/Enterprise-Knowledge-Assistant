@@ -1,6 +1,6 @@
 """Typed records exchanged between agents, including structured LLM outputs."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -151,6 +151,21 @@ class ConversationSummary(BaseModel):
     """A rolling summary of the older part of a conversation."""
 
     summary: str = Field(description="A few sentences on what was asked and decided.")
+
+
+class PendingToolCall(BaseModel):
+    """A write tool waiting for a person. These arguments are the only ones that can run."""
+
+    tool_call_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+
+
+class ApprovalDecision(BaseModel):
+    """A person's decision, which names the call and cannot change its arguments."""
+
+    tool_call_id: str
+    approved: bool
 
 
 class ValidationReport(BaseModel):

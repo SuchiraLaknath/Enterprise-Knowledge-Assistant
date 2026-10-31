@@ -3,6 +3,8 @@
 The server filters by the verified role itself, and these wrappers only forward what was asked.
 """
 
+from typing import Literal
+
 from pydantic import Field
 
 from tools.models import ToolArguments, ToolContext, ToolResult
@@ -10,6 +12,7 @@ from tools.models import ToolArguments, ToolContext, ToolResult
 EMPLOYEE_DIRECTORY_TOOL = "mcp.employee_directory"
 SERVICE_CATALOG_TOOL = "mcp.service_catalog"
 INCIDENT_RECORDS_TOOL = "mcp.incident_records"
+UPDATE_INCIDENT_STATUS_TOOL = "admin.update_incident_status"
 
 
 class EmployeeDirectoryArguments(ToolArguments):
@@ -30,6 +33,13 @@ class IncidentRecordsArguments(ToolArguments):
 
     service_name: str = Field(default="", max_length=100, description="Part of a service name.")
     status: str = Field(default="", max_length=20, description="open, resolved, or empty for all.")
+
+
+class UpdateIncidentStatusArguments(ToolArguments):
+    """Change an incident's status. A person approves these exact values first."""
+
+    incident_id: str = Field(pattern=r"^LIVE-\d{1,6}$", description="The incident id.")
+    status: Literal["open", "resolved"] = Field(description="The new status.")
 
 
 async def _call_mcp_tool(
@@ -62,3 +72,12 @@ async def look_up_incidents(
 ) -> ToolResult:
     """Call `incident_records`."""
     return await _call_mcp_tool(INCIDENT_RECORDS_TOOL, "incident_records", arguments, context)
+
+
+async def update_incident_status(
+    arguments: UpdateIncidentStatusArguments, context: ToolContext
+) -> ToolResult:
+    """Call `update_incident_status`, which the registry runs only after approval (rule 3)."""
+    return await _call_mcp_tool(
+        UPDATE_INCIDENT_STATUS_TOOL, "update_incident_status", arguments, context
+    )

@@ -1,0 +1,22 @@
+# Questions with known answers from the mock corpus, for measuring retrieval.
+# `expected_doc_ids` lists documents that should be found. Any of them counts as a hit.
+# `user_role` is who asks, because results depend on access.
+questions:
+  - question: How many days of annual leave can I carry over?
+    user_role: viewer
+    expected_doc_ids: [POL-005]
+  - question: What is the phishing response process?
+    user_role: viewer
+    expected_doc_ids: [RB-009]
+  - question: How do I handle a log volume incident?
+    user_role: viewer
+    expected_doc_ids: [RB-006]
+  - question: How do we recover from database connection pool exhaustion?
+    user_role: analyst
+    expected_doc_ids: [RB-002]
+  - question: Which runbook covers certificate rotation?
+    user_role: analyst
+    expected_doc_ids: [RB-001]
+  - question: What does the customer data masking standard require?
+    user_role: viewer
+    expected_doc_ids: [POL-004, POL-003, POL-001, POL-002]

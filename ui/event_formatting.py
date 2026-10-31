@@ -143,6 +143,11 @@ def _describe_memory(event: dict[str, Any]) -> str:
     return f"  Memory {event['operation']} ({event['tier']}): {event['item_count']} items"
 
 
+def _describe_approval(event: dict[str, Any]) -> str:
+    """Show that a write tool is waiting for a person."""
+    return f"  Waiting for approval: {event['tool_name']}({event['arguments']})"
+
+
 EVENT_DESCRIPTIONS = {
     "node": _describe_node,
     "state": _describe_state,
@@ -151,6 +156,7 @@ EVENT_DESCRIPTIONS = {
     "research": _describe_research,
     "tool": _describe_tool,
     "memory": _describe_memory,
+    "approval": _describe_approval,
     "validation": _describe_validation,
 }
 

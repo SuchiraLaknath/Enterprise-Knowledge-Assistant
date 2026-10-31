@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from agent.dependencies import AgentDependencies
 from agent.graph import AgentGraph
 from api.checkpoint_store import CheckpointAvailability
+from api.feedback_store import FeedbackStore
 from api.ratelimit import RateLimiter
 from config.settings import ApiLimits, RoleAccess
 
@@ -23,3 +24,4 @@ class ApplicationServices:
     api_limits: ApiLimits
     langsmith_project: str
     rate_limiter: RateLimiter
+    feedback_store: FeedbackStore

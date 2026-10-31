@@ -193,3 +193,11 @@ def test_validation_events_show_the_status_and_reasons():
     )
 
     assert description == "  Check validator: fail: Dead [9]."
+
+
+def test_approval_events_show_what_is_waiting():
+    description = describe_event(
+        {"type": "approval", "tool_name": "admin.write", "arguments": {"id": 1}}
+    )
+
+    assert "Waiting for approval: admin.write" in description

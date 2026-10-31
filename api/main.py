@@ -23,8 +23,9 @@ from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import LlmGateway
 from agent.memory_store import PostgresLongTermMemory
 from api.checkpoint_store import PostgresAvailabilityCheck
+from api.feedback_store import PostgresFeedbackStore
 from api.ratelimit import build_rate_limiter
-from api.routes import auth, chat
+from api.routes import approve, auth, chat, feedback
 from api.services import ApplicationServices
 from api.tracing import configure_redacted_tracing
 from config.settings import (
@@ -121,10 +122,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     checkpointer = AsyncPostgresSaver(connection_pool, serde=create_checkpoint_serializer())
     audit_log = PostgresAuditLog(connection_pool)
     long_term_memory = PostgresLongTermMemory(connection_pool)
+    feedback_store = PostgresFeedbackStore(connection_pool)
     # Tables are created on first use, so that the API can start while Postgres is down.
     checkpoint_availability = PostgresAvailabilityCheck(
         connection_pool,
-        [checkpointer.setup, audit_log.setup, long_term_memory.setup],
+        [checkpointer.setup, audit_log.setup, long_term_memory.setup, feedback_store.setup],
         limits.api.postgres_timeout_s,
         settings.enabled_faults,
     )
@@ -176,6 +178,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             rate_limiter=build_rate_limiter(
                 settings.redis_url, limits.rate_limits, settings.enabled_faults
             ),
+            feedback_store=feedback_store,
         )
         logger.info("api_started")
         yield
@@ -213,6 +216,8 @@ def create_app(use_lifespan: bool = True) -> FastAPI:
     application.add_exception_handler(RequestValidationError, handle_invalid_request)  # type: ignore[arg-type]
     application.include_router(auth.router)
     application.include_router(chat.router)
+    application.include_router(approve.router)
+    application.include_router(feedback.router)
 
     @application.get("/health")
     async def health() -> dict[str, str]:

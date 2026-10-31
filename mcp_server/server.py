@@ -7,6 +7,7 @@ injected argument gains nothing. An unknown or missing role sees nothing.
 Run with: uv run python -m mcp_server.server
 """
 
+import os
 from typing import Any
 
 from fastmcp import FastMCP
@@ -17,7 +18,9 @@ from mcp_server.enterprise_data import EMPLOYEES, INCIDENTS, SERVICES
 from mcp_server.headers import USER_ROLE_HEADER
 
 SERVER_NAME = "enterprise-data"
-SERVER_HOST = "127.0.0.1"
+ADMIN_ROLE = "admin"
+# Compose sets this to reach the server from other containers. Locally it stays on this machine.
+SERVER_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 SERVER_PORT = 8001
 HTTP_TRANSPORT = "http"
 
@@ -74,6 +77,19 @@ def incident_records(service_name: str = "", status: str = "") -> list[dict[str,
         and _matches(incident["service"], service_name)
         and _matches(incident["status"], status)
     ]
+
+
+@mcp.tool
+def update_incident_status(incident_id: str, status: str) -> dict[str, Any]:
+    """Change an incident's status, for an administrator."""
+    # Rule 2: the API has already checked this, and a write is worth checking again here.
+    if get_http_headers().get(USER_ROLE_HEADER, "") != ADMIN_ROLE:
+        return {"updated": False, "reason": "Only an administrator may change an incident."}
+    for incident in INCIDENTS:
+        if incident["id"] == incident_id:
+            incident["status"] = status
+            return {"updated": True, "incident_id": incident_id, "status": status}
+    return {"updated": False, "reason": "No incident has this id."}
 
 
 if __name__ == "__main__":

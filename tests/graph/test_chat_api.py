@@ -40,6 +40,15 @@ def search():
     return RecordingSearch()
 
 
+class FakeFeedbackStore:
+    def __init__(self):
+        self.ratings = []
+
+    async def record(self, user, run_id, rating, question):
+        self.ratings.append({"user": user, "rating": rating, "question": question})
+        return True
+
+
 class FakeCheckpointAvailability:
     def __init__(self):
         self.available = True
@@ -70,6 +79,7 @@ async def client(search, llm, monkeypatch):
         api_limits=get_limits().api,
         langsmith_project="test",
         rate_limiter=build_rate_limiter("", get_limits().rate_limits),
+        feedback_store=FakeFeedbackStore(),
     )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
@@ -331,3 +341,57 @@ async def test_an_invalid_request_gets_a_structured_422_and_no_echo(client):
     assert response.json()["error"] == "invalid_request"
     assert response.json()["problems"][0]["field"] == "body.thread_id"
     assert "DROP TABLE" not in response.text
+
+
+async def test_a_rating_is_stored_against_the_verified_user(client, monkeypatch):
+    async def no_langsmith(run_id, rating, timeout_s):
+        return False
+
+    monkeypatch.setattr("api.routes.feedback.send_to_langsmith", no_langsmith)
+    headers = await sign_in(client)
+    _, events = await post_chat(client, headers)
+    run_id = next(event for event in events if event["type"] == "final")["run_id"]
+
+    response = await client.post(
+        "/feedback",
+        json={"run_id": run_id, "rating": "down", "question": "Why did payments fail?"},
+        headers=headers,
+    )
+
+    assert response.json() == {"stored": True, "sent_to_langsmith": False}
+    stored = client._transport.app.state.services.feedback_store.ratings[0]
+    assert stored["user"].user_id == "vimal"
+    assert stored["rating"] == "down"
+
+
+async def test_a_rating_needs_a_valid_value(client):
+    headers = await sign_in(client)
+
+    response = await client.post(
+        "/feedback",
+        json={"run_id": "not-a-uuid", "rating": "maybe", "question": "Q"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+async def test_approving_a_call_that_is_not_paused_is_refused(client):
+    # Attack: a forged approval for a turn that never paused, or for someone else's thread.
+    headers = await sign_in(client, "admin", "admin-demo")
+
+    response = await client.post(
+        "/approve",
+        json={"thread_id": "no-such-thread", "tool_call_id": "call-1", "approved": True},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+
+
+async def test_approval_needs_a_signed_in_user(client):
+    response = await client.post(
+        "/approve", json={"thread_id": "t", "tool_call_id": "call-1", "approved": True}
+    )
+
+    assert response.status_code == 401

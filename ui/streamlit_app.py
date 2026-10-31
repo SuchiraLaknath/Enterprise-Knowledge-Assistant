@@ -26,6 +26,10 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
 # The sign-in shortcuts for the demo. The API holds the real user list and checks these.
 DEMO_USERS = {"vimal": "viewer-demo", "nadee": "analyst-demo", "admin": "admin-demo"}
 
+# `st.feedback` reports thumbs as positions, where 1 is thumbs up.
+THUMBS_UP_POSITION = 1
+UNKNOWN_QUESTION = "(not recorded)"
+
 # Streamlit gives container keys to the page as `st-key-<key>` classes, which the style below uses.
 CONVERSATION_PANEL_KEY = "conversation_panel"
 ACTIVITY_PANEL_KEY = "activity_panel"
@@ -52,11 +56,17 @@ def api_url(path: str) -> str:
     return f"{get_environment_settings().api_url}{path}"
 
 
+def auth_headers() -> dict[str, str]:
+    """Return the header that proves who is signed in."""
+    return {"Authorization": f"Bearer {st.session_state.access_token}"}
+
+
 def start_new_conversation() -> None:
     """Clear the chat and activity, and use a new thread."""
     st.session_state.thread_id = uuid.uuid4().hex
     st.session_state.chat_history = []
     st.session_state.activity_lines = []
+    st.session_state.pop("pending_approval", None)
 
 
 def show_sign_in() -> None:
@@ -99,26 +109,54 @@ def show_citations(citations: list[dict[str, Any]]) -> None:
             )
 
 
+def send_rating(final_event: dict[str, Any], thumbs_position: int) -> None:
+    """Record a rating. The answer has already been given, so a failure only shows a note."""
+    rating = "up" if thumbs_position == THUMBS_UP_POSITION else "down"
+    payload = {
+        "run_id": final_event["run_id"],
+        "rating": rating,
+        "question": final_event.get("question") or UNKNOWN_QUESTION,
+    }
+    try:
+        httpx.post(
+            api_url("/feedback"), json=payload, headers=auth_headers(), timeout=REQUEST_TIMEOUT
+        )
+    except httpx.HTTPError:
+        st.caption("Your rating could not be saved.")
+
+
 def show_answer_details(final_event: dict[str, Any]) -> None:
-    """Show the degradation notice, the sources and the trace link."""
+    """Show the degradation notice, the sources, the trace link and the rating buttons."""
     if final_event.get("degraded"):
         st.warning(f"Reduced service: {', '.join(final_event['degraded'])}")
     show_citations(final_event.get("citations", []))
     if final_event.get("trace_url"):
         st.link_button("View LangSmith trace", final_event["trace_url"])
+    # The key is the run id, so that each answer keeps its own rating across reruns.
+    thumbs_position = st.feedback("thumbs", key=f"rating_{final_event.get('run_id')}")
+    if thumbs_position is not None and not final_event.get("rating_sent"):
+        send_rating(final_event, thumbs_position)
+        final_event["rating_sent"] = True
 
 
-def stream_events(message: str) -> Any:
-    """Yield each event of one chat turn as it arrives from the API."""
+def stream_events(path: str, payload: dict[str, Any]) -> Any:
+    """Yield each event of one turn as it arrives from the API."""
     with httpx.stream(
         "POST",
-        api_url("/chat"),
-        json={"message": message, "thread_id": st.session_state.thread_id},
-        headers={"Authorization": f"Bearer {st.session_state.access_token}"},
+        api_url(path),
+        json=payload,
+        headers=auth_headers(),
         timeout=REQUEST_TIMEOUT,
     ) as response:
         if response.status_code == httpx.codes.UNAUTHORIZED:
             yield {"type": "error", "message": "Your session has expired. Please sign in again."}
+            return
+        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            wait = response.headers.get("retry-after", "a few")
+            yield {"type": "error", "message": f"Too many requests. Try again in {wait} seconds."}
+            return
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            yield {"type": "error", "message": "The request could not be completed."}
             return
         for line in response.iter_lines():
             event_data = parse_sse_line(line)
@@ -126,21 +164,15 @@ def stream_events(message: str) -> Any:
                 yield json.loads(event_data)
 
 
-def run_chat_turn(message: str, activity_panel: Any) -> None:
-    """Send a message, and update the draft and the activity panel as events arrive."""
-    st.session_state.chat_history.append({"role": "user", "text": message})
-    st.session_state.activity_lines = []
-    with st.chat_message("user"):
-        st.text(message)
-
+def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
+    """Draw one turn as it arrives. Tokens go to the draft, and `final` replaces them."""
     with st.chat_message("assistant"):
         answer_area = st.empty()
         draft = ""
         final_event: dict[str, Any] | None = None
 
         try:
-            # Tokens go to the draft, `final` replaces it, and the rest goes to the panel.
-            for event in stream_events(message):
+            for event in events:
                 if event["type"] == "token":
                     draft = apply_token_event(draft, event)
                     # Rule 9: a draft is plain text, so an injected image URL can never load.
@@ -154,6 +186,8 @@ def run_chat_turn(message: str, activity_panel: Any) -> None:
                 elif event["type"] == "error":
                     st.error(event["message"])
                 else:
+                    if event["type"] == "approval":
+                        st.session_state.pending_approval = event
                     activity_line = describe_event(event)
                     if activity_line:
                         st.session_state.activity_lines.append(activity_line)
@@ -166,10 +200,52 @@ def run_chat_turn(message: str, activity_panel: Any) -> None:
         if final_event is None:
             answer_area.empty()
         else:
+            final_event["question"] = question
             show_answer_details(final_event)
             st.session_state.chat_history.append(
                 {"role": "assistant", "text": final_event["answer"], "final_event": final_event}
             )
+
+
+def run_chat_turn(message: str, activity_panel: Any) -> None:
+    """Send a message, and update the draft and the activity panel as events arrive."""
+    st.session_state.chat_history.append({"role": "user", "text": message})
+    st.session_state.activity_lines = []
+    st.session_state.last_question = message
+    with st.chat_message("user"):
+        st.text(message)
+    payload = {"message": message, "thread_id": st.session_state.thread_id}
+    show_streamed_turn(stream_events("/chat", payload), activity_panel, message)
+
+
+def run_approval_turn(approved: bool, activity_panel: Any) -> None:
+    """Send a decision on a paused write tool, and show the rest of the turn."""
+    pending_call = st.session_state.pop("pending_approval")
+    payload = {
+        "thread_id": st.session_state.thread_id,
+        "tool_call_id": pending_call["tool_call_id"],
+        "approved": approved,
+    }
+    question = st.session_state.get("last_question", "")
+    show_streamed_turn(stream_events("/approve", payload), activity_panel, question)
+
+
+def show_pending_approval(activity_panel: Any) -> None:
+    """Ask the person to decide on a paused write tool, showing exactly what would run."""
+    pending_call = st.session_state.get("pending_approval")
+    if pending_call is None:
+        return
+    with st.chat_message("assistant"):
+        st.warning("This action changes data, and needs your approval.")
+        # Plain text, because a tool's arguments came from a model.
+        st.text(f"{pending_call['tool_name']}\n{json.dumps(pending_call['arguments'], indent=2)}")
+        approve_column, reject_column = st.columns(2)
+        if approve_column.button("Approve", key="approve_tool_call"):
+            run_approval_turn(True, activity_panel)
+            st.rerun()
+        if reject_column.button("Reject", key="reject_tool_call"):
+            run_approval_turn(False, activity_panel)
+            st.rerun()
 
 
 def show_chat_history() -> None:
@@ -222,6 +298,7 @@ def main() -> None:
         show_chat_history()
         if message:
             run_chat_turn(message, activity_panel)
+        show_pending_approval(activity_panel)
 
 
 main()

@@ -11,7 +11,15 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
-from agent.schemas import Citation, Finding, Plan, ResearchReport, ValidationReport
+from agent.schemas import (
+    ApprovalDecision,
+    Citation,
+    Finding,
+    PendingToolCall,
+    Plan,
+    ResearchReport,
+    ValidationReport,
+)
 from retrieval.models import RetrievedChunk, UserContext
 from tools.models import ToolResult
 
@@ -39,6 +47,9 @@ class AgentState(TypedDict, total=False):
     research_finished: bool
     research_report: ResearchReport | None
     tools_finished: bool
+    # A write tool waiting for a person, and their decision once they have made it.
+    pending_approval: PendingToolCall | None
+    approval_decision: ApprovalDecision | None
     tool_results: Annotated[list[ToolResult], operator.add]
     # Set when the input guard's judge is down, so that only read tools may run.
     read_only_tools: bool
