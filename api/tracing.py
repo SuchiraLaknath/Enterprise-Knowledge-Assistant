@@ -6,7 +6,9 @@ that no node can forget. Traces still show the structure of a turn: which chunks
 system prompt, the question and the answer.
 
 Research findings are hidden as well, because a sub-agent's claim often quotes its document
-closely. Their ids, labels and evidence chunk ids stay, so a trace still shows what was found.
+closely, and a theme summary paraphrases those claims. Their ids, labels and evidence chunk ids
+stay, so a trace still shows what was found. An error keeps only its type, because a parser's
+error quotes the whole reply that it could not read.
 """
 
 import re
@@ -20,10 +22,20 @@ from pydantic import BaseModel
 DOCUMENT_BODY_PATTERN = re.compile(r"(<document [^>]*>).*?(</document>)", re.DOTALL)
 HIDDEN_DOCUMENT_TEXT = r"\1[document text hidden]\2"
 
-# A sub-agent's raw reply is JSON inside a string, so its claims need a pattern as well.
-CLAIM_FIELD_NAME = "claim"
-CLAIM_IN_JSON_PATTERN = re.compile(r'("claim"\s*:\s*")(?:[^"\\]|\\.)*(")')
+# Model text that comes from documents. In parsed form these are ordinary fields.
+HIDDEN_FIELD_NAMES = ("claim", "summary")
 HIDDEN_FINDING_TEXT = "[finding text hidden]"
+
+# Before parsing, a model's reply is JSON inside a string. The closing quote is optional, because
+# a reply can be cut off partway through a claim.
+FINDING_IN_JSON_PATTERN = re.compile(r'("(?:claim|summary)"\s*:\s*")(?:[^"\\]|\\.)*("|\Z)')
+# The response prompt carries each theme's summary as a tag attribute.
+THEME_SUMMARY_PATTERN = re.compile(r'(<theme [^>]*summary=")[^"]*(")')
+HIDDEN_FINDING_SUBSTITUTION = rf"\1{HIDDEN_FINDING_TEXT}\2"
+
+# The name at the start of an error, such as `OutputParserException`.
+ERROR_TYPE_PATTERN = re.compile(r"[\w.]+")
+UNKNOWN_ERROR_TYPE = "UnknownError"
 
 
 def redact_document_text(payload: Any) -> Any:
@@ -33,14 +45,17 @@ def redact_document_text(payload: Any) -> Any:
     """
     if isinstance(payload, str):
         without_documents = DOCUMENT_BODY_PATTERN.sub(HIDDEN_DOCUMENT_TEXT, payload)
-        return CLAIM_IN_JSON_PATTERN.sub(rf"\1{HIDDEN_FINDING_TEXT}\2", without_documents)
+        without_summaries = THEME_SUMMARY_PATTERN.sub(
+            HIDDEN_FINDING_SUBSTITUTION, without_documents
+        )
+        return FINDING_IN_JSON_PATTERN.sub(HIDDEN_FINDING_SUBSTITUTION, without_summaries)
     if isinstance(payload, BaseModel):
         return redact_document_text(payload.model_dump())
     if isinstance(payload, dict):
         # A record with both of these fields is a retrieved chunk, whose text must not leave.
         is_retrieved_chunk = "chunk_id" in payload and "text" in payload
         return {
-            key: HIDDEN_FINDING_TEXT if key == CLAIM_FIELD_NAME else redact_document_text(value)
+            key: HIDDEN_FINDING_TEXT if key in HIDDEN_FIELD_NAMES else redact_document_text(value)
             for key, value in payload.items()
             if not (is_retrieved_chunk and key == "text")
         }
@@ -49,8 +64,23 @@ def redact_document_text(payload: Any) -> Any:
     return payload
 
 
+def anonymize_trace_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Clean one payload on its way to LangSmith.
+
+    LangSmith wraps a run's error as `{"error": text}`. Only the error type is kept, because the
+    text can quote a model's reply, in a form that no pattern can clean reliably.
+    """
+    if set(payload) == {"error"}:
+        error_type = ERROR_TYPE_PATTERN.match(str(payload["error"]))
+        return {"error": error_type.group() if error_type else UNKNOWN_ERROR_TYPE}
+    redacted_payload: dict[str, Any] = redact_document_text(payload)
+    return redacted_payload
+
+
 def configure_redacted_tracing() -> None:
-    """Make every trace in this process pass through the redaction."""
-    langsmith.configure(
-        client=Client(hide_inputs=redact_document_text, hide_outputs=redact_document_text)
-    )
+    """Make every trace in this process pass through the redaction.
+
+    This uses `anonymizer` rather than `hide_inputs` and `hide_outputs`, because it is the only
+    hook that also covers a run's `error` field.
+    """
+    langsmith.configure(client=Client(anonymizer=anonymize_trace_payload))

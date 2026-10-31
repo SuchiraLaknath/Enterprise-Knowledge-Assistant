@@ -1,7 +1,7 @@
 from langchain_core.messages import HumanMessage
 
 from agent.schemas import ExtractedFinding, ResearchReport, ResearchTheme
-from api.tracing import redact_document_text
+from api.tracing import anonymize_trace_payload, redact_document_text
 from tests.fakes.fake_research import make_finding
 from tests.fakes.fake_search import make_chunk
 
@@ -98,3 +98,35 @@ def test_a_claim_inside_a_raw_model_reply_is_redacted():
     assert SECRET_TEXT not in str(redacted)
     assert "quoted" not in str(redacted)
     assert "theme_label" in str(redacted)
+
+
+def test_a_reply_cut_off_inside_a_claim_is_redacted():
+    # Attack: a poisoned document asks to be quoted at length, so the reply hits the token limit.
+    cut_off_reply = f'{{"findings": [{{"claim": "{SECRET_TEXT} and it goes on'
+
+    assert SECRET_TEXT not in str(redact_document_text({"content": cut_off_reply}))
+
+
+def test_a_theme_summary_is_hidden_in_every_form():
+    # A summary paraphrases the claims, so hiding only the claims would achieve little.
+    theme = {"name": "Expiry", "summary": SECRET_TEXT}
+    raw_reply = f'{{"themes": [{{"name": "Expiry", "summary": "{SECRET_TEXT}"}}]}}'
+    prompt = f'<theme name="Expiry" documents="2" summary="{SECRET_TEXT}">'
+
+    assert SECRET_TEXT not in str(redact_document_text({"themes": [theme]}))
+    assert SECRET_TEXT not in str(redact_document_text({"content": raw_reply}))
+    assert SECRET_TEXT not in str(redact_document_text({"content": prompt}))
+    assert "Expiry" in str(redact_document_text({"content": prompt}))
+
+
+def test_an_error_keeps_only_its_type():
+    # A parser's error quotes the whole reply, which can hold text from a document.
+    error = f"OutputParserException('Failed to parse BatchAnalysis from {SECRET_TEXT}')\nTraceback"
+
+    assert anonymize_trace_payload({"error": error}) == {"error": "OutputParserException"}
+
+
+def test_an_ordinary_payload_is_redacted_by_the_anonymizer():
+    payload = {"messages": [f'<document id="1" a="b">{SECRET_TEXT}</document>'], "error": None}
+
+    assert SECRET_TEXT not in str(anonymize_trace_payload(payload))
