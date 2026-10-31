@@ -11,6 +11,8 @@ from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
 from agent.llm_gateway import DraftResetHandler, GatewayResult, TextHandler
+from config.settings import ResearchLimits, SandboxLimits
+from retrieval.catalog import DocumentCatalog
 from retrieval.models import DocumentFilters, SearchResult, UserContext
 
 
@@ -47,8 +49,15 @@ class DocumentSearcher(Protocol):
         document_filters: DocumentFilters | None = None,
         namespaces: tuple[str, ...] | None = None,
         use_reranker: bool = True,
+        result_count: int | None = None,
     ) -> SearchResult:
         """Return the best chunks this user may read."""
+        ...
+
+    async def fetch_chunks(
+        self, chunk_ids_by_namespace: dict[str, list[str]], user: UserContext
+    ) -> SearchResult:
+        """Return the named chunks this user may read."""
         ...
 
 
@@ -58,4 +67,9 @@ class AgentDependencies:
 
     llm: LlmClient
     document_search: DocumentSearcher
+    document_catalog: DocumentCatalog
     history_message_count: int
+    research_limits: ResearchLimits
+    sandbox_limits: SandboxLimits
+    # Roles that may run deep research. Step 7 moves this to the tool registry.
+    research_roles: tuple[str, ...]

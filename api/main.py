@@ -24,6 +24,7 @@ from api.services import ApplicationServices
 from api.tracing import configure_redacted_tracing
 from config.settings import (
     BM25_PARAMETERS_PATH,
+    DOCUMENT_CATALOG_PATH,
     DOCUMENTS_DIRECTORY,
     EnvironmentSettings,
     export_tracing_settings,
@@ -34,6 +35,7 @@ from config.settings import (
 )
 from resilience.circuit_breaker import CircuitBreaker
 from retrieval.bm25_fallback import LocalKeywordIndex
+from retrieval.catalog import DocumentCatalog
 from retrieval.hybrid import load_bm25_encoder
 from retrieval.pinecone_client import PineconeSearchBackend
 from retrieval.search import DocumentSearchService
@@ -133,7 +135,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             agent_dependencies=AgentDependencies(
                 llm=llm_gateway,
                 document_search=document_search,
+                document_catalog=DocumentCatalog.from_file(DOCUMENT_CATALOG_PATH),
                 history_message_count=limits.conversation.history_message_count,
+                research_limits=limits.research,
+                sandbox_limits=limits.sandbox,
+                research_roles=get_role_access().research_roles,
             ),
             jwt_secret=settings.jwt_secret.get_secret_value(),
             role_access=get_role_access(),

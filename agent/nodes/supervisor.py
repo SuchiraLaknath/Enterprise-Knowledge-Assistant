@@ -45,6 +45,8 @@ def _fallback_plan(user_text: str) -> Plan:
         departments=[],
         document_types=[],
         recent_days=None,
+        # With no model to plan, there is none to write research code or sub-agent replies.
+        needs_research=False,
     )
 
 

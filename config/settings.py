@@ -135,6 +135,20 @@ class SandboxLimits(BaseModel):
     max_range_items: int = Field(gt=0)
 
 
+class ResearchLimits(BaseModel):
+    """Bounds on one RLM research run, so that a plan cannot run away (rule 7)."""
+
+    max_depth: int = Field(gt=0)
+    max_batches_per_level: int = Field(gt=0)
+    max_sub_agent_calls: int = Field(gt=0)
+    sub_agent_chunk_limit: int = Field(gt=0)
+    max_parallel_sub_agents: int = Field(gt=0)
+    max_search_calls: int = Field(gt=0)
+    search_result_count: int = Field(gt=0)
+    deadline_s: float = Field(gt=0)
+    plan_regeneration_limit: int = Field(ge=0)
+
+
 class Limits(BaseModel):
     """All operational limits from `config/limits.yaml`."""
 
@@ -146,6 +160,7 @@ class Limits(BaseModel):
     conversation: ConversationLimits
     api: ApiLimits
     sandbox: SandboxLimits
+    research: ResearchLimits
 
 
 class ModelNames(BaseModel):
@@ -167,9 +182,10 @@ def _read_yaml_file(file_name: str) -> dict[str, object]:
 
 
 class RoleAccess(BaseModel):
-    """The document access levels of each role, from `config/rbac.yaml`."""
+    """The document access levels of each role, and who may research, from `config/rbac.yaml`."""
 
     roles: dict[str, tuple[str, ...]]
+    research_roles: tuple[str, ...]
 
 
 @lru_cache

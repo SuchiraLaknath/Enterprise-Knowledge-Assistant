@@ -6,3 +6,6 @@ roles:
   analyst: [public, internal, confidential]
   # Administrators see everything.
   admin: [public, internal, confidential, restricted]
+
+# Roles that may run deep research. A viewer gets normal retrieval and a polite note instead.
+research_roles: [analyst, admin]

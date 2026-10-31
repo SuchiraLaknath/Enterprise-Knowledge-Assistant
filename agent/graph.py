@@ -35,7 +35,10 @@ AgentGraph = CompiledStateGraph[AgentState, AgentDependencies, AgentState, Agent
 # so naming them stops a tampered checkpoint from creating anything else.
 CHECKPOINT_TYPES = (
     ("agent.schemas", "Citation"),
+    ("agent.schemas", "Finding"),
     ("agent.schemas", "Plan"),
+    ("agent.schemas", "ResearchReport"),
+    ("agent.schemas", "ResearchTheme"),
     ("retrieval.models", "RetrievedChunk"),
     ("retrieval.models", "UserContext"),
 )

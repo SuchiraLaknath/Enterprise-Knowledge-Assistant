@@ -17,6 +17,7 @@ def make_plan(
         "departments": [],
         "document_types": [],
         "recent_days": None,
+        "needs_research": False,
     }
     return Plan(**(values | overrides))
 
@@ -24,16 +25,27 @@ def make_plan(
 class FakeLlm:
     """Replays preset plans and answers, and records what it was asked."""
 
-    def __init__(self, plans=None, answers=None, fails=False, stream_tokens=None) -> None:
+    def __init__(
+        self, plans=None, answers=None, fails=False, stream_tokens=None, replies=None
+    ) -> None:
         self.plans = list(plans or [make_plan()])
         self.answers = list(answers or ["Payments failed because a certificate expired [1]."])
         self.fails = fails
         self.stream_tokens = stream_tokens
         self.received_answer_messages: list[list] = []
+        # Replies by output schema, for research. An exception in the list is raised instead.
+        self.replies = {schema: list(values) for schema, values in (replies or {}).items()}
+        self.received_structured_calls: list[tuple] = []
 
     async def generate_structured(self, route_name, messages, output_schema):
+        self.received_structured_calls.append((output_schema, list(messages)))
         if self.fails:
             raise AllModelsFailedError(route_name, ["fake:model"])
+        if output_schema in self.replies:
+            reply = self.replies[output_schema].pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return GatewayResult(reply, "fake:model")
         return GatewayResult(self.plans.pop(0), "fake:model")
 
     async def stream_text(self, route_name, messages, on_text, on_draft_reset):

@@ -78,3 +78,23 @@ sandbox:
   cpu_seconds: 2.0
   # Largest `range` allowed, because code such as `sorted(range(n))` runs only in C.
   max_range_items: 10000
+
+research:
+  # How many levels of sub-agents may call each other (rule 7).
+  max_depth: 2
+  # Sub-agent batches allowed at each level, which limits fan-out (rule 7).
+  max_batches_per_level: 8
+  # Sub-agent calls allowed in one run, which limits cost (rule 7).
+  max_sub_agent_calls: 24
+  # Most chunks one sub-agent reads. A larger batch is split between two sub-agents below it.
+  sub_agent_chunk_limit: 6
+  # Sub-agents running at once, which keeps a run inside provider rate limits.
+  max_parallel_sub_agents: 4
+  # Searches one plan may run. Each one embeds a query, so this limits Pinecone use.
+  max_search_calls: 6
+  # Chunks one research search returns. More than an answer needs, as it surveys a topic.
+  search_result_count: 40
+  # Seconds one run may take in total, including waiting on helpers.
+  deadline_s: 120.0
+  # Extra attempts for a planner whose code failed, before the fixed template plan.
+  plan_regeneration_limit: 1

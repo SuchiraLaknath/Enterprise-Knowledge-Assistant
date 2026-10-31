@@ -4,12 +4,12 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from agent.dependencies import AgentDependencies
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.nodes.response_agent import DEGRADED_EXTRACTIVE, format_evidence_documents
 from agent.nodes.supervisor import DEGRADED_NO_PLAN
 from agent.prompts.response import EVIDENCE_ACKNOWLEDGEMENT, NO_EVIDENCE_ACKNOWLEDGEMENT
 from retrieval.models import SearchResult, UserContext
+from tests.fakes.fake_dependencies import make_agent_dependencies
 from tests.fakes.fake_llm import FakeLlm, make_plan
 from tests.fakes.fake_search import make_chunk
 
@@ -30,11 +30,7 @@ class FakeDocumentSearch:
 
 
 def make_dependencies(llm=None, search=None):
-    return AgentDependencies(
-        llm=llm or FakeLlm(),
-        document_search=search or FakeDocumentSearch(),
-        history_message_count=10,
-    )
+    return make_agent_dependencies(llm or FakeLlm(), search or FakeDocumentSearch())
 
 
 async def run_turn(graph, dependencies, question="Why did payments fail?"):

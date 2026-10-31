@@ -10,7 +10,6 @@ import jwt
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
-from agent.dependencies import AgentDependencies
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from api.auth import TOKEN_ALGORITHM
 from api.main import create_app
@@ -19,6 +18,7 @@ from api.routes.chat import build_checkpoint_thread_id
 from api.services import ApplicationServices
 from config.settings import get_limits, get_role_access
 from retrieval.models import SearchResult, UserContext
+from tests.fakes.fake_dependencies import make_agent_dependencies
 from tests.fakes.fake_llm import FakeLlm, make_plan
 from tests.fakes.fake_search import make_chunk
 
@@ -53,7 +53,7 @@ async def client(search, llm, monkeypatch):
     app = create_app(use_lifespan=False)
     app.state.services = ApplicationServices(
         agent_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
-        agent_dependencies=AgentDependencies(llm, search, history_message_count=10),
+        agent_dependencies=make_agent_dependencies(llm, search),
         jwt_secret=JWT_SECRET,
         role_access=get_role_access(),
         api_limits=get_limits().api,

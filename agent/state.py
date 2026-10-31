@@ -11,7 +11,7 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
-from agent.schemas import Citation, Plan
+from agent.schemas import Citation, Plan, ResearchReport
 from retrieval.models import RetrievedChunk, UserContext
 
 
@@ -27,6 +27,10 @@ class AgentState(TypedDict, total=False):
     # Per-turn fields, reset by `load_context`.
     plan: Plan | None
     retrieval_finished: bool
+    research_finished: bool
+    research_report: ResearchReport | None
+    # A fixed sentence added to the answer, such as why deep research was not used.
+    turn_notice: str | None
     evidence: Annotated[list[RetrievedChunk], operator.add]
     degraded: Annotated[list[str], operator.add]
     # Reserved for the validator loop in build step 8.
