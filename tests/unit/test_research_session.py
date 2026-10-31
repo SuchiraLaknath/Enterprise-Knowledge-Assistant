@@ -215,6 +215,29 @@ async def test_a_plans_task_cannot_open_a_document_tag():
     assert SUB_AGENT_REQUEST_TEMPLATE.split("{task}")[0] in request_text
 
 
+async def test_oversized_batches_are_evened_out_so_nothing_is_cut_short():
+    # A live run sent batches of 18, 18 and 12. Each split into 9s, over the limit of 6, so the
+    # deepest level cut them short and lost two documents.
+    limits = get_limits().research
+    section_count = limits.plan_batch_target * 2 * limits.sub_agent_chunk_limit
+    sections = [make_section(f"INC-{number:02}") for number in range(section_count)]
+    session = make_session(FakeResearchSearch())
+    uneven_batches = [sections[:18], sections[18:36], sections[36:]]
+
+    balanced_batches = session._rebalance_batches(uneven_batches)
+
+    assert len(balanced_batches) == limits.plan_batch_target
+    assert all(len(batch) <= limits.sub_agent_chunk_limit * 2 for batch in balanced_batches)
+    assert sum(len(batch) for batch in balanced_batches) == section_count
+
+
+async def test_batches_that_can_split_are_left_as_the_plan_made_them():
+    sections = [make_section(f"INC-{number}") for number in range(3)]
+    session = make_session(FakeResearchSearch())
+
+    assert session._rebalance_batches([sections]) == [sections]
+
+
 def test_group_by_doc_collects_each_documents_records():
     records = [{"doc_id": "A", "n": 1}, {"doc_id": "B", "n": 2}, {"doc_id": "A", "n": 3}]
 

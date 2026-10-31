@@ -51,7 +51,7 @@ else:
 
 # This plan does not know which section matters, so sub-agents read each document in full.
 sections = fetch_sections(doc_ids)
-batch_size = (len(sections) + MAX_BATCHES - 1) // MAX_BATCHES
+batch_size = (len(sections) + TARGET_BATCHES - 1) // TARGET_BATCHES
 delegate(question, chunk(sections, batch_size))
 """
 

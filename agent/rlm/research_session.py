@@ -105,7 +105,7 @@ class ResearchSession:
             "departments": list(plan.departments),
             "document_types": list(plan.document_types),
             "recent_days": plan.recent_days,
-            "MAX_BATCHES": self._limits.max_batches_per_level,
+            "TARGET_BATCHES": self._limits.plan_batch_target,
             "explore_documents": self.explore_documents,
             "search": self.search,
             "group_by_doc": group_by_doc,
@@ -256,7 +256,29 @@ class ResearchSession:
 
     async def _delegate(self, task: str, chunk_id_batches: list[list[str]]) -> None:
         """Turn the plan's ids back into chunks, and hand them to the sub-agents."""
-        await self.sub_agents.analyse_batches(task, self._resolve_batches(chunk_id_batches))
+        chunk_batches = self._rebalance_batches(self._resolve_batches(chunk_id_batches))
+        await self.sub_agents.analyse_batches(task, chunk_batches)
+
+    def _rebalance_batches(
+        self, chunk_batches: list[list[RetrievedChunk]]
+    ) -> list[list[RetrievedChunk]]:
+        """Even out batches too large to split once, so that no section is left unread.
+
+        Removing duplicates can leave a plan's batches uneven, and a batch over twice one reader's
+        limit would be cut short at the deepest level. Sorting by chunk id keeps each document's
+        sections together.
+        """
+        largest_splittable_batch = self._limits.sub_agent_chunk_limit * 2
+        if all(len(chunks) <= largest_splittable_batch for chunks in chunk_batches):
+            return chunk_batches
+
+        all_chunks = sorted(
+            (retrieved_chunk for chunks in chunk_batches for retrieved_chunk in chunks),
+            key=lambda retrieved_chunk: retrieved_chunk.chunk_id,
+        )
+        target_batches = self._limits.plan_batch_target
+        batch_size = (len(all_chunks) + target_batches - 1) // target_batches
+        return chunk(all_chunks, batch_size)
 
     def _resolve_batches(self, chunk_id_batches: list[list[str]]) -> list[list[RetrievedChunk]]:
         """Turn a plan's chunk ids into chunks, each sent to a sub-agent only once.

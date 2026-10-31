@@ -148,6 +148,7 @@ class ResearchLimits(BaseModel):
 
     max_depth: int = Field(gt=0)
     max_batches_per_level: int = Field(gt=0)
+    plan_batch_target: int = Field(gt=0)
     max_sub_agent_calls: int = Field(gt=0)
     sub_agent_chunk_limit: int = Field(gt=0)
     max_parallel_sub_agents: int = Field(gt=0)

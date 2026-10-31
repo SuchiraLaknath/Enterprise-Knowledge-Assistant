@@ -98,6 +98,9 @@ research:
   max_depth: 2
   # Sub-agent batches allowed at each level, which limits fan-out (rule 7).
   max_batches_per_level: 8
+  # Batches a plan aims to start with. Half the level limit, so that a large job can split one
+  # level down and stay inside it, while a small job stays flat. This is what makes depth earned.
+  plan_batch_target: 4
   # Sub-agent calls allowed in one run, which limits cost (rule 7).
   max_sub_agent_calls: 24
   # Most chunks one sub-agent reads. A larger batch is split between two sub-agents below it.
