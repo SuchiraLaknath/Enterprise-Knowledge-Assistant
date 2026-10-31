@@ -78,6 +78,11 @@ Checked live against the seeded root causes in the mock corpus, on the demo ques
 
 A run takes 30 to 50 seconds. In about a third of runs the validator rejects the first draft, usually for a claim that goes beyond the evidence, and the rewritten answer passes. It reads only the section holding each root cause, so 22 of the 154 chunks an analyst may read. Retrieval scores a 100% hit rate on the golden questions in `evals/`, which is a small set.
 
+Public LangSmith traces, from runs on the primary models, show every step of a turn. Document text is hidden, as [ADR 0008](docs/adr/0008-tracing-redaction.md) explains:
+
+- [The demo question](https://smith.langchain.com/public/bf1a3f60-e3e2-441c-8ab4-92a81cb14ace/r/0172920c-a361-473d-9f3b-1de9320b426e?start_time=2026-10-31T15%3A12%3A00.063816Z) as `nadee`: 22 of 22 documents.
+- [A whole-report question](https://smith.langchain.com/public/05c59fee-4217-483a-8a23-148ccd1e6cdc/r/e2b1a24f-43d3-4be9-b211-075122038659?start_time=2026-10-31T15%3A21%3A18.384698Z) as `admin`: 24 of 24 documents, reaching recursion depth 2.
+
 ## How it is built
 
 | Layer | Choice |
