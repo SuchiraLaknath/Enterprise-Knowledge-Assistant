@@ -75,6 +75,8 @@ def require_startup_secrets(settings: EnvironmentSettings) -> None:
         raise RuntimeError("JWT_SECRET is too short. Generate one: openssl rand -hex 32")
     if not settings.anthropic_api_key.get_secret_value():
         raise RuntimeError("ANTHROPIC_API_KEY must be set.")
+    if not settings.pinecone_api_key.get_secret_value() or not settings.pinecone_index:
+        raise RuntimeError("PINECONE_API_KEY and PINECONE_INDEX must be set.")
     if not settings.database_url:
         raise RuntimeError("DATABASE_URL must be set.")
 

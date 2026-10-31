@@ -1,7 +1,13 @@
-# Local infrastructure. Application containers are added in build step 11.
+# The whole system. Run with: docker compose up --build
+#
+# There is one `.env` at the repository root, read by Compose to fill in the values below, and
+# no container receives the whole file. Each gets only what it needs, and hostnames are replaced
+# with service names. Ports are bound to 127.0.0.1, because the demo sign-in is one click.
+#
+# The first time, or after changing the corpus: docker compose --profile ingest run --rm ingest
 services:
   postgres:
-    # Includes pgvector, which the long-term memory store uses for semantic search.
+    # Includes pgvector, which the long-term memory store can use for semantic search.
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: postgres
@@ -28,6 +34,65 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # No published port and no keys. It trusts the role header, so only the API may reach it.
+  mcp:
+    build: .
+    command: [".venv/bin/python", "-m", "mcp_server.server"]
+    environment:
+      MCP_HOST: 0.0.0.0
+
+  api:
+    build: .
+    command: [".venv/bin/uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      PINECONE_INDEX: ${PINECONE_INDEX:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-true}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-enterprise-knowledge-assistant}
+      JWT_SECRET: ${JWT_SECRET:-}
+      FAULTS: ${FAULTS:-}
+      # These replace the local addresses in `.env` with service names.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/knowledge_assistant
+      REDIS_URL: redis://redis:6379/0
+      MCP_URL: http://mcp:8001/mcp
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+
+  ui:
+    build: .
+    command:
+      - ".venv/bin/streamlit"
+      - "run"
+      - "ui/streamlit_app.py"
+      - "--server.address=0.0.0.0"
+      - "--server.headless=true"
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      - api
+
+  # Rebuilds the Pinecone index. A profile keeps it out of `up`, because it replaces the index.
+  ingest:
+    build: .
+    profiles: [ingest]
+    command: [".venv/bin/python", "-m", "ingestion.index"]
+    environment:
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      PINECONE_INDEX: ${PINECONE_INDEX:-}
 
 volumes:
   postgres_data:

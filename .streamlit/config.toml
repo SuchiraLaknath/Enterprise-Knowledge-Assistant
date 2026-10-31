@@ -1,4 +1,4 @@
-# Streamlit settings for local use. Docker Compose overrides the address in build step 11.
+# Streamlit settings for local use. Docker Compose overrides the address.
 
 [server]
 # Only this machine can reach the UI, because the demo sign-in is one click.

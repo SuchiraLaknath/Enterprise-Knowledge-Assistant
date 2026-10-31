@@ -28,8 +28,10 @@ class EnvironmentSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", extra="ignore")
 
-    pinecone_api_key: SecretStr
-    pinecone_index: str
+    # Empty by default, because the UI and MCP containers receive no keys. The API refuses to
+    # start without these, and ingestion cannot run without them.
+    pinecone_api_key: SecretStr = SecretStr("")
+    pinecone_index: str = ""
     # The gateway skips a provider with no key, and refuses to start without Anthropic.
     anthropic_api_key: SecretStr = SecretStr("")
     openai_api_key: SecretStr = SecretStr("")
@@ -226,8 +228,7 @@ class RoleAccess(BaseModel):
 @lru_cache
 def get_environment_settings() -> EnvironmentSettings:
     """Return the environment settings, read once per process."""
-    # Pydantic fills the required fields from the environment, which mypy cannot see.
-    return EnvironmentSettings()  # type: ignore[call-arg]
+    return EnvironmentSettings()
 
 
 @lru_cache

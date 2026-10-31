@@ -1,0 +1,14 @@
+# Keys and local state must never enter an image, and nothing below is needed to run the app.
+.env
+.env.*
+!.env.example
+.git
+.claude
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+**/__pycache__
+tests
+docs
+*.pdf
