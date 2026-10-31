@@ -71,11 +71,17 @@ def require_startup_secrets(settings: EnvironmentSettings) -> None:
 def create_connection_pool(
     database_url: str,
 ) -> AsyncConnectionPool[AsyncConnection[dict[str, Any]]]:
-    """Create the Postgres pool, with the connection settings the checkpointer requires."""
+    """Create the Postgres pool, with the connection settings the checkpointer requires.
+
+    A restart of Postgres kills every idle connection, and the pool does not notice by itself.
+    Testing each connection before lending it out means that the pool replaces a dead one,
+    rather than failing the employee's turn.
+    """
     return AsyncConnectionPool(
         database_url,
         connection_class=AsyncConnection[dict[str, Any]],
         open=False,
+        check=AsyncConnectionPool.check_connection,
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
     )
 
