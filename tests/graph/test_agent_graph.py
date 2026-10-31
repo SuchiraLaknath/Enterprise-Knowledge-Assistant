@@ -8,6 +8,7 @@ from agent.dependencies import AgentDependencies
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.nodes.response_agent import DEGRADED_EXTRACTIVE, format_evidence_documents
 from agent.nodes.supervisor import DEGRADED_NO_PLAN
+from agent.prompts.response import EVIDENCE_ACKNOWLEDGEMENT, NO_EVIDENCE_ACKNOWLEDGEMENT
 from retrieval.models import SearchResult, UserContext
 from tests.fakes.fake_llm import FakeLlm, make_plan
 from tests.fakes.fake_search import make_chunk
@@ -226,6 +227,18 @@ async def test_old_citation_markers_are_removed_from_the_prompt(graph):
         if isinstance(message, AIMessage)
     ]
     assert "Cert expired ." in earlier_answers
+
+
+async def test_an_empty_search_never_claims_that_documents_were_read(graph):
+    # A false "I have read the documents" made the model apologise for a reply nobody saw.
+    llm = FakeLlm()
+    search = FakeDocumentSearch([SearchResult(chunks=[])])
+
+    await run_turn(graph, make_dependencies(llm, search))
+
+    prompt_texts = [message.content for message in llm.received_answer_messages[0]]
+    assert NO_EVIDENCE_ACKNOWLEDGEMENT in prompt_texts
+    assert EVIDENCE_ACKNOWLEDGEMENT not in prompt_texts
 
 
 def test_a_document_cannot_close_its_own_tag():
