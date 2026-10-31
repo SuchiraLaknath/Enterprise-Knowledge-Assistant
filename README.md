@@ -6,7 +6,6 @@ A multi-agent assistant for Commercial Bank employees, built for the AI Lead tec
 |---|---|
 | Architecture and diagrams | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Assumptions and trade-offs | [docs/adr/](docs/adr/) |
-| Demo walkthrough | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) |
 
 ## What it does
 
@@ -102,7 +101,7 @@ mcp_server/   dummy enterprise data over MCP
 ingestion/    the mock corpus generator and indexer
 ui/           Streamlit
 evals/        retrieval scoring and golden questions
-docs/         architecture, decisions and the demo script
+docs/         architecture and decisions
 ```
 
 ## Assumptions to know about
