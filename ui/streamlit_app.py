@@ -1,7 +1,8 @@
 """Streamlit chat with a live view of what the agent is doing.
 
 The brief asks for function and transparency over looks, so this stays simple: sign in on the
-left, chat in the middle and the activity panel on the right.
+left, chat in the middle and the activity panel on the right. The message box stays at the
+bottom of the window, and the two panels above it scroll on their own, as in other chat apps.
 
 Run with: uv run streamlit run ui/streamlit_app.py
 """
@@ -24,6 +25,26 @@ from ui.event_formatting import apply_token_event, describe_event, parse_sse_lin
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
 # The sign-in shortcuts for the demo. The API holds the real user list and checks these.
 DEMO_USERS = {"vimal": "viewer-demo", "nadee": "analyst-demo", "admin": "admin-demo"}
+
+# Streamlit gives container keys to the page as `st-key-<key>` classes, which the style below uses.
+CONVERSATION_PANEL_KEY = "conversation_panel"
+ACTIVITY_PANEL_KEY = "activity_panel"
+# Streamlit only scrolls and follows new text in a container with a height in pixels, so the
+# panels are created with this height, and the style below replaces it to fit the window.
+PANEL_HEIGHT_PIXELS = 480
+# The height leaves room for the panel titles and the message box, so the page itself never
+# scrolls and the message box stays in view. Streamlit sets the height on the wrapper around each
+# panel, so the rule targets that wrapper. The text here is fixed and holds no user content.
+PANEL_LAYOUT_STYLE = f"""
+<style>
+.stMainBlockContainer {{ padding-top: 3.75rem !important; padding-bottom: 0 !important; }}
+[data-testid="stLayoutWrapper"]:has(> .st-key-{CONVERSATION_PANEL_KEY}),
+[data-testid="stLayoutWrapper"]:has(> .st-key-{ACTIVITY_PANEL_KEY}) {{
+    flex-basis: calc(100dvh - 16rem) !important;
+    height: calc(100dvh - 16rem) !important;
+}}
+</style>
+"""
 
 
 def api_url(path: str) -> str:
@@ -165,6 +186,7 @@ def show_chat_history() -> None:
 def main() -> None:
     """Lay out the page and handle one interaction."""
     st.set_page_config(page_title="Knowledge Assistant", layout="wide")
+    st.html(PANEL_LAYOUT_STYLE)
     if "thread_id" not in st.session_state:
         start_new_conversation()
 
@@ -179,15 +201,25 @@ def main() -> None:
     chat_column, activity_column = st.columns([3, 2])
     with activity_column:
         st.subheader("Agent activity")
-        activity_panel = st.empty()
+        with st.container(height=PANEL_HEIGHT_PIXELS, key=ACTIVITY_PANEL_KEY, autoscroll=True):
+            activity_panel = st.empty()
         activity_panel.text("\n".join(st.session_state.activity_lines) or "Waiting for a question.")
 
     with chat_column:
-        if "access_token" not in st.session_state:
-            st.info("Sign in from the sidebar to start.")
-            return
+        st.subheader("Conversation")
+        conversation_panel = st.container(
+            height=PANEL_HEIGHT_PIXELS, key=CONVERSATION_PANEL_KEY, autoscroll=True
+        )
+
+    if "access_token" not in st.session_state:
+        conversation_panel.info("Sign in from the sidebar to start.")
+        return
+
+    # This stays outside the columns, because Streamlit pins only a top-level message box to the
+    # bottom of the window. Inside a column, it would sit in the page with the messages.
+    message = st.chat_input("Ask about policies, runbooks, incidents and more")
+    with conversation_panel:
         show_chat_history()
-        message = st.chat_input("Ask about policies, runbooks, incidents and more")
         if message:
             run_chat_turn(message, activity_panel)
 
