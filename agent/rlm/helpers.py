@@ -9,6 +9,10 @@ Helpers are synchronous, because plans run in the sandbox thread, but search and
 async. `_run_on_event_loop` hops back to the event loop for that work. Waiting there uses none
 of the sandbox's CPU budget.
 
+Rule 7: a helper must read everything a plan passes it before that hop. A plan can pass a
+generator, whose body is plan code, and on the event loop it would escape the CPU limit and
+freeze every user's request. So only plain values built in the sandbox thread cross over.
+
 Recursion happens in `_analyse_batch`: a sub-agent's work moves one level down when a batch is
 too large for one reader, or, through `_follow_up_unresolved`, when a sub-agent reports that the
 section it was shown does not hold the answer. Both stop at the depth limit.
@@ -18,6 +22,7 @@ import asyncio
 import time
 from collections import Counter
 from collections.abc import Coroutine, Iterable, Sequence
+from html import escape
 from typing import Any
 
 import structlog
@@ -186,8 +191,11 @@ class ResearchSession:
         created_after: int | None = None,
     ) -> list[dict[str, str]]:
         """Search without reranking, because a plan's searches would use up the monthly quota."""
+        # An empty query could fail at Pinecone, and failures trip a breaker shared by all users.
+        if not str(query).strip():
+            raise ValueError("A search needs a query.")
         return self._run_on_event_loop(
-            self._search(query, document_types, departments, created_after)
+            self._search(str(query), tuple(document_types), tuple(departments), created_after)
         )
 
     async def _search(
@@ -274,13 +282,16 @@ class ResearchSession:
         self._remember_chunks(permitted_chunks)
         return permitted_chunks
 
-    def delegate(self, task: str, batches: Sequence[Sequence[dict[str, Any]]]) -> None:
+    def delegate(self, task: str, batches: Iterable[Iterable[dict[str, Any]]]) -> None:
         """Send each batch to a sub-agent. Findings are recorded here, not returned to the plan."""
-        self._run_on_event_loop(self._delegate(task, batches))
+        chunk_id_batches = []
+        for batch in batches:
+            chunk_id_batches.append([str(record["chunk_id"]) for record in batch])
+        self._run_on_event_loop(self._delegate(str(task), chunk_id_batches))
 
-    async def _delegate(self, task: str, batches: Sequence[Sequence[dict[str, Any]]]) -> None:
+    async def _delegate(self, task: str, chunk_id_batches: list[list[str]]) -> None:
         """Check the plan's request against the budget, and fan out to sub-agents."""
-        chunk_batches = self._resolve_batches(batches)
+        chunk_batches = self._resolve_batches(chunk_id_batches)
 
         # A plan that asks for too much is a bad plan, so it fails rather than quietly shrinking.
         batches_requested = self._batches_by_depth[TOP_LEVEL] + len(chunk_batches)
@@ -300,19 +311,17 @@ class ResearchSession:
             *[self._analyse_batch(task, chunks, TOP_LEVEL) for chunks in chunk_batches]
         )
 
-    def _resolve_batches(
-        self, batches: Sequence[Sequence[dict[str, Any]]]
-    ) -> list[list[RetrievedChunk]]:
-        """Turn a plan's records into chunks, each sent to a sub-agent only once.
+    def _resolve_batches(self, chunk_id_batches: list[list[str]]) -> list[list[RetrievedChunk]]:
+        """Turn a plan's chunk ids into chunks, each sent to a sub-agent only once.
 
         One chunk can cover several headings, so fetching by two keywords returns it twice.
         Only chunks this session read can be resolved, so a made-up id reaches nothing.
         """
         chunk_batches = []
-        for batch in batches:
+        for chunk_ids in chunk_id_batches:
             new_chunks = []
-            for record in batch:
-                known_chunk = self._chunks_by_id.get(record["chunk_id"])
+            for chunk_id in chunk_ids:
+                known_chunk = self._chunks_by_id.get(chunk_id)
                 if known_chunk is None or known_chunk.chunk_id in self._delegated_chunk_ids:
                     continue
                 self._delegated_chunk_ids.add(known_chunk.chunk_id)
@@ -392,9 +401,10 @@ class ResearchSession:
             return None
         self.sub_agent_calls += 1
 
-        # Rule 5: the sections reach the sub-agent as data, inside document tags.
+        # Rule 5: the sections reach the sub-agent as data, inside document tags. A plan can
+        # build its task from a title, so the task is escaped and cannot open a tag of its own.
         request_text = SUB_AGENT_REQUEST_TEMPLATE.format(
-            task=task, documents=format_evidence_documents(chunks)
+            task=escape(task, quote=False), documents=format_evidence_documents(chunks)
         )
         messages: list[BaseMessage] = [
             SystemMessage(SUB_AGENT_SYSTEM_PROMPT),

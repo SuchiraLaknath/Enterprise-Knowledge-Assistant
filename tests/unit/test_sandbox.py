@@ -63,13 +63,16 @@ NO_HELPERS = frozenset()
         "[0] * 10000000000",
         "'%999999999d' % 1",
         "f'{1:>999999999}'",
+        # Changing a shared object, which could carry data between users.
+        "x = chunk\nx.title = 1",
+        "x = chunk\nx.title += 1",
         # Names that were never provided or assigned.
         "unknown_helper()",
     ],
 )
 def test_attacks_are_refused_before_running(attack):
     with pytest.raises(SandboxViolation):
-        validate_code(attack, NO_HELPERS)
+        validate_code(attack, frozenset({"chunk"}))
 
 
 def test_broken_python_is_refused():

@@ -175,8 +175,12 @@ def _check_node(node: ast.AST, readable_names: set[str]) -> None:
         if isinstance(node.ctx, ast.Load) and node.id not in readable_names:
             raise SandboxViolation(f"The name {node.id} is not available.")
 
-    if isinstance(node, ast.Attribute) and node.attr not in ALLOWED_ATTRIBUTES:
-        raise SandboxViolation(f"The attribute {node.attr} is not allowed.")
+    if isinstance(node, ast.Attribute):
+        if node.attr not in ALLOWED_ATTRIBUTES:
+            raise SandboxViolation(f"The attribute {node.attr} is not allowed.")
+        # Helpers are shared by all users, so a value set on one could reach another's plan.
+        if not isinstance(node.ctx, ast.Load):
+            raise SandboxViolation("Attributes can be read, but not changed.")
 
     # A width such as f"{value:>999999999}" would build a huge string in C.
     if isinstance(node, ast.FormattedValue) and node.format_spec is not None:

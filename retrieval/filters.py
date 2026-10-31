@@ -73,7 +73,8 @@ def matches_document_filters(
 
 def timestamp_days_ago(days: int) -> int:
     """Return the epoch time `days` ago, in the form that `created_ts` filters compare."""
-    return int(time.time()) - days * SECONDS_PER_DAY
+    # `int` comes first, because plans call this, and multiplying a list builds a huge one in C.
+    return int(time.time()) - int(days) * SECONDS_PER_DAY
 
 
 def is_access_allowed(user: UserContext, access_level: str) -> bool:

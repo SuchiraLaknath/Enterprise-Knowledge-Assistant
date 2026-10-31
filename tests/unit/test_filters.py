@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from retrieval.filters import build_metadata_filter, is_access_allowed, keep_permitted_chunks
+from retrieval.filters import (
+    build_metadata_filter,
+    is_access_allowed,
+    keep_permitted_chunks,
+    timestamp_days_ago,
+)
 from retrieval.models import DocumentFilters, RetrievedChunk, UserContext
 from tests.fakes.fake_search import make_chunk
 
@@ -67,3 +72,23 @@ def test_validation_errors_do_not_quote_document_text():
 
     # Pydantic shortens long values, so the test checks that nothing is quoted at all.
     assert "input_value" not in str(caught_error.value)
+
+
+def test_days_ago_refuses_a_list_before_multiplying_it():
+    # Rule 7: a plan calls this, and multiplying a list by 86400 builds a huge one in C. A
+    # `TypeError` afterwards would be too late, so this proves that no multiply happens.
+    class RecordingList(list):
+        multiplied = False
+
+        def __mul__(self, other):
+            RecordingList.multiplied = True
+            return []
+
+    with pytest.raises(TypeError):
+        timestamp_days_ago(RecordingList([0]))
+
+    assert RecordingList.multiplied is False
+
+
+def test_days_ago_returns_an_earlier_time():
+    assert timestamp_days_ago(1) < timestamp_days_ago(0)

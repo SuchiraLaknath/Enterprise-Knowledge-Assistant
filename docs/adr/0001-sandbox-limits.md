@@ -20,7 +20,8 @@ The main alternative was a separate process or container per plan. It would give
 
 ## Consequences
 
-- **Not stopped:** a long operation in C cannot be interrupted partway, because the trace runs between Python lines. Repeated string doubling (`text = text + text` in a loop) can exhaust memory before the CPU limit fires, because each step takes little CPU.
+- **Not stopped:** a long operation in C cannot be interrupted partway, because the trace runs between Python lines. Such a call also holds the GIL, so it stalls every user's request and not just the plan. Repeated string doubling (`text = text + text` in a loop) can exhaust memory before the CPU limit fires, because each step takes little CPU.
+- **Closed by the helpers:** a generator passed to a helper would otherwise run on the event loop, outside the trace, so each helper reads what it is given while still in the sandbox thread.
 - **Not limited:** memory has no limit of its own, and a plan runs inside the API process.
 - **Accepted because:** this is a proof of concept, with mock data, on a machine the demo controls. Plans can only come from a signed-in analyst or admin, and the input guard in build step 8 screens the question first.
 - **For production:** run plans in a separate process with memory limits, and keep the same allow-list as the first layer.
