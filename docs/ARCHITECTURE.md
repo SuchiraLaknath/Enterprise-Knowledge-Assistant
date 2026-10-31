@@ -20,7 +20,6 @@ flowchart LR
     graph --> gateway[LLM gateway]
     gateway --> anthropic[Anthropic]
     gateway -.fallback.-> openai[OpenAI]
-    gateway -.fallback.-> groq[Groq]
 
     graph --> retrieval[Hybrid retrieval]
     retrieval --> pinecone[(Pinecone<br/>dense + sparse)]

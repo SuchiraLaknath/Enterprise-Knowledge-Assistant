@@ -13,6 +13,7 @@ from tests.fakes.fake_dependencies import FakeMcpClient, make_agent_dependencies
 from tests.fakes.fake_llm import FakeLlm, make_plan
 from tests.fakes.fake_search import make_chunk
 from tools.audit_log import InMemoryAuditLog
+from tools.mcp_client import McpClient
 
 VIEWER = UserContext(user_id="vimal", role="viewer", allowed_access_levels=("public", "internal"))
 ANALYST = UserContext(
@@ -262,6 +263,23 @@ async def test_a_tool_timeout_fault_still_gives_an_answer():
     assert tool_events(events)[0]["status"] == "timeout"
     assert DEGRADED_TOOL_FAILED in state["degraded"]
     assert state["final_answer"]
+
+
+@pytest.mark.faults
+async def test_the_mcp_fault_switch_fails_the_real_client():
+    # `FAULTS=mcp` must fail the client itself, so that the demo shows a real failure path.
+    client = McpClient("http://unused", ("mcp",), "x" * 32, 30.0)
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[[tool_call("mcp__service_catalog")], []],
+    )
+
+    events, state = await run_turn(make_dependencies(llm, mcp_client=client))
+
+    assert tool_events(events)[0]["status"] == "error"
+    assert DEGRADED_TOOL_FAILED in state["degraded"]
+    assert state["final_answer"] == PLAIN_ANSWER
 
 
 @pytest.mark.faults

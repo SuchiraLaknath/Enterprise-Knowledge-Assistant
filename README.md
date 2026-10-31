@@ -19,7 +19,7 @@ A multi-agent assistant for Commercial Bank employees, built for the AI Lead tec
 
 ## Run it
 
-You need Docker, and API keys for Anthropic, Pinecone and LangSmith. OpenAI and Groq keys are optional, and add fallback providers.
+You need Docker, and API keys for Anthropic, Pinecone and LangSmith. An OpenAI key is optional, and adds a fallback provider. The gateway also supports Groq, but no Groq model is on a route yet ([ADR 0004](docs/adr/0004-model-selection.md)).
 
 ```bash
 cp .env.example .env     # then fill in the keys. Generate JWT_SECRET: openssl rand -hex 32
