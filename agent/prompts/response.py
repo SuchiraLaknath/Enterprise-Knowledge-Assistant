@@ -41,7 +41,9 @@ holds one checked finding from a source document, and its id number is the citat
 finding. Themes are listed with their counts, which were calculated from the findings.
 
 Answer with the themes, largest first. Use the counts exactly as given, say how many documents
-were covered, and cite the findings behind each theme.
+were covered and which dates they span, and cite the findings behind each theme. Any period the
+employee asked about has already been applied, so the documents here are the ones in scope.
+Keep the answer concise: summarise each theme, rather than listing every finding.
 
 {report}"""
 

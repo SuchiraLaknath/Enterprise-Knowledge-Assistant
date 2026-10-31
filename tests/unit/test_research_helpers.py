@@ -99,17 +99,33 @@ async def test_a_section_keyword_reads_only_matching_sections():
 
 
 async def test_delegate_refuses_more_batches_than_a_level_allows():
-    session = make_session(FakeResearchSearch(), max_batches_per_level=2)
+    search = FakeResearchSearch([make_section(f"INC-{number}") for number in range(3)])
+    session = make_session(search, max_batches_per_level=2)
+    records = await session._search("payment outage", (), (), None)
 
     with pytest.raises(ResearchBudgetExceeded):
-        await session._delegate("task", [[], [], []])
+        await session._delegate("task", chunk(records, 1))
 
 
 async def test_a_record_the_session_never_read_cannot_reach_a_sub_agent():
     # Attack: generated code invents a chunk id for a document it was never given.
     session = make_session(FakeResearchSearch())
 
-    assert session._resolve_records([{"chunk_id": "SECRET#c0"}]) == []
+    assert session._resolve_batches([[{"chunk_id": "SECRET#c0"}]]) == []
+
+
+async def test_a_chunk_fetched_twice_reaches_a_sub_agent_once():
+    # One chunk covers several headings, so a plan that fetches by two keywords gets it twice.
+    # Without this, duplicates push a good plan over the batch limit and waste a retry.
+    search = FakeResearchSearch([make_section("INC-1"), make_section("INC-2")])
+    session = make_session(search)
+    records = await session._search("payment outage", (), (), None)
+
+    chunk_batches = session._resolve_batches([records, records, records])
+
+    assert [[chunk.chunk_id for chunk in batch] for batch in chunk_batches] == [
+        ["INC-1#c0", "INC-2#c0"]
+    ]
 
 
 def test_group_by_doc_collects_each_documents_records():

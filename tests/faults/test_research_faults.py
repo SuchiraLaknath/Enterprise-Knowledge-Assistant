@@ -15,7 +15,7 @@ from agent.rlm.helpers import DEGRADED_BATCH_FAILED
 from agent.rlm.planner import DEGRADED_PLANNER_UNAVAILABLE, TEMPLATE_PLAN_CODE
 from agent.schemas import BatchAnalysis, ResearchCode, ThemeGrouping
 from config.settings import SandboxLimits, get_limits
-from retrieval.models import DegradedReason, UserContext
+from retrieval.models import DegradedReason, SearchResult, UserContext
 from tests.fakes.fake_dependencies import make_agent_dependencies
 from tests.fakes.fake_llm import FakeLlm, make_plan
 from tests.fakes.fake_research import (
@@ -73,6 +73,13 @@ async def run_turn(dependencies):
     return events, state.values
 
 
+def limit_search_to_one_result(search):
+    async def search_for_one_result(query_text, user, document_filters=None, **options):
+        return SearchResult(chunks=search.chunks[:1], degraded=[])
+
+    return search_for_one_result
+
+
 def research_plans(events):
     return [
         event for event in events if event["type"] == "research" and event["stage"] == "plan_ready"
@@ -109,6 +116,21 @@ async def test_a_second_invalid_plan_falls_back_to_the_template():
     assert [plan["source"] for plan in research_plans(events)] == ["llm", "llm", "template"]
     assert research_plans(events)[-1]["code"] == TEMPLATE_PLAN_CODE
     assert state["research_report"].documents_analysed == 2
+
+
+async def test_the_template_reads_the_whole_collection_when_it_can_be_listed():
+    # A live run found the template reading only what search returned: 13 of 22 incidents, in
+    # an answer that sounded complete. Here search finds one document of three.
+    doc_ids = ["INC-1", "INC-2", "INC-3"]
+    search = FakeResearchSearch([make_section(doc_id) for doc_id in doc_ids])
+    search.search = limit_search_to_one_result(search)
+    catalog = make_catalog(*[make_catalog_entry(doc_id) for doc_id in doc_ids])
+    llm = make_llm([INVALID_PLAN, INVALID_PLAN])
+    llm.plans = [make_plan(needs_research=True, document_types=["incident"])]
+
+    _, state = await run_turn(make_agent_dependencies(llm, search, catalog))
+
+    assert state["research_report"].documents_analysed == 3
 
 
 async def test_when_every_plan_fails_the_turn_uses_plain_retrieval():

@@ -28,12 +28,17 @@ DEGRADED_PLANNER_UNAVAILABLE = "research_planner_unavailable"
 
 # Used when the LLM cannot write a working plan. It goes through the same sandbox checks, and it
 # reads the employee's words from sandbox values, so that their text is never pasted into code.
+# With a type or department to narrow by, the catalog lists the whole collection. A search alone
+# would stop at its closest matches, and an answer could quietly miss part of the collection.
 TEMPLATE_PLAN_CODE = """\
 created_after = None
 if recent_days:
     created_after = days_ago(recent_days)
 records = search(search_query, document_types, departments, created_after)
 doc_ids = sorted(group_by_doc(records))
+if document_types or departments:
+    documents = explore_documents(document_types, departments, created_after)
+    doc_ids = [document["doc_id"] for document in documents]
 sections = fetch_sections(doc_ids)
 batch_size = len(sections) // MAX_BATCHES + 1
 delegate(question, chunk(sections, batch_size))

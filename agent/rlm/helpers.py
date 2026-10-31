@@ -104,6 +104,7 @@ class ResearchSession:
 
         # Document text stays here, and only ids reach the plan.
         self._chunks_by_id: dict[str, RetrievedChunk] = {}
+        self._delegated_chunk_ids: set[str] = set()
         self._analysed_chunk_ids: set[str] = set()
         self._search_calls = 0
         self._batches_by_depth: Counter[int] = Counter()
@@ -274,34 +275,46 @@ class ResearchSession:
 
     async def _delegate(self, task: str, batches: Sequence[Sequence[dict[str, Any]]]) -> None:
         """Check the plan's request against the budget, and fan out to sub-agents."""
+        chunk_batches = self._resolve_batches(batches)
+
         # A plan that asks for too much is a bad plan, so it fails rather than quietly shrinking.
-        batches_requested = self._batches_by_depth[TOP_LEVEL] + len(batches)
+        batches_requested = self._batches_by_depth[TOP_LEVEL] + len(chunk_batches)
         if batches_requested > self._limits.max_batches_per_level:
             raise ResearchBudgetExceeded(
                 f"delegate accepts at most {self._limits.max_batches_per_level} batches, "
                 f"but {batches_requested} were requested."
             )
 
-        chunk_batches = [self._resolve_records(batch) for batch in batches]
-        non_empty_batches = [chunks for chunks in chunk_batches if chunks]
         emit_event(
             EventType.RESEARCH,
             stage="batches_planned",
             depth=TOP_LEVEL,
-            batch_sizes=[len(chunks) for chunks in non_empty_batches],
+            batch_sizes=[len(chunks) for chunks in chunk_batches],
         )
         await asyncio.gather(
-            *[self._analyse_batch(task, chunks, TOP_LEVEL) for chunks in non_empty_batches]
+            *[self._analyse_batch(task, chunks, TOP_LEVEL) for chunks in chunk_batches]
         )
 
-    def _resolve_records(self, batch: Sequence[dict[str, Any]]) -> list[RetrievedChunk]:
-        """Turn a plan's records into chunks. Only chunks this session read can be resolved."""
-        resolved_chunks = []
-        for record in batch:
-            known_chunk = self._chunks_by_id.get(record["chunk_id"])
-            if known_chunk is not None:
-                resolved_chunks.append(known_chunk)
-        return resolved_chunks
+    def _resolve_batches(
+        self, batches: Sequence[Sequence[dict[str, Any]]]
+    ) -> list[list[RetrievedChunk]]:
+        """Turn a plan's records into chunks, each sent to a sub-agent only once.
+
+        One chunk can cover several headings, so fetching by two keywords returns it twice.
+        Only chunks this session read can be resolved, so a made-up id reaches nothing.
+        """
+        chunk_batches = []
+        for batch in batches:
+            new_chunks = []
+            for record in batch:
+                known_chunk = self._chunks_by_id.get(record["chunk_id"])
+                if known_chunk is None or known_chunk.chunk_id in self._delegated_chunk_ids:
+                    continue
+                self._delegated_chunk_ids.add(known_chunk.chunk_id)
+                new_chunks.append(known_chunk)
+            if new_chunks:
+                chunk_batches.append(new_chunks)
+        return chunk_batches
 
     async def _analyse_batch(self, task: str, chunks: list[RetrievedChunk], depth: int) -> None:
         """Analyse one batch, moving to a level below when it needs more than one reader."""

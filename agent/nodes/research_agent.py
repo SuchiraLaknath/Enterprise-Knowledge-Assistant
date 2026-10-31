@@ -199,7 +199,14 @@ async def research_aggregator(
     emit_event(
         EventType.RESEARCH,
         stage="report_ready",
-        themes=[{"name": theme.name, "document_count": theme.document_count} for theme in themes],
+        themes=[
+            {
+                "name": theme.name,
+                "document_count": theme.document_count,
+                "doc_ids": sorted({finding.doc_id for finding in theme.findings}),
+            }
+            for theme in themes
+        ],
         documents_analysed=report.documents_analysed,
         chunks_read=report.chunks_read,
         chunks_available=report.chunks_available,
