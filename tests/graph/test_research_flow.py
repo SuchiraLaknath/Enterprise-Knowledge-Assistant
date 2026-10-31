@@ -241,6 +241,27 @@ async def test_evidence_from_the_subgraph_is_not_counted_twice(graph):
     assert len(set(chunk_ids)) == 4
 
 
+async def test_the_subgraph_returns_only_what_it_added():
+    # The supervisor can record degradation first. If the subgraph returned its whole input,
+    # the additive reducers would count every earlier entry a second time.
+    chunks, catalog = make_incidents(2)
+    dependencies = make_agent_dependencies(make_research_llm(), FakeResearchSearch(chunks), catalog)
+
+    result = await build_research_agent().ainvoke(
+        {
+            "user": ANALYST,
+            "plan": make_plan(needs_research=True),
+            "messages": [HumanMessage(QUESTION)],
+            "evidence": [make_section("EARLIER")],
+            "degraded": ["earlier_problem"],
+        },
+        context=dependencies,
+    )
+
+    assert "earlier_problem" not in result["degraded"]
+    assert "EARLIER" not in [chunk.doc_id for chunk in result["evidence"]]
+
+
 async def test_research_from_an_earlier_turn_cannot_be_cited(graph):
     # Rule 4: the next turn must start with neither the report nor its evidence.
     chunks, catalog = make_incidents(2)
