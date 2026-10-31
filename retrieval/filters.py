@@ -4,9 +4,12 @@ Rule 1: access always comes from the verified `UserContext`. `DocumentFilters` h
 access-level field, so even a value chosen by the LLM cannot widen what a user can read.
 """
 
+import time
 from typing import Any, Protocol
 
 from retrieval.models import DocumentFilters, RetrievedChunk, UserContext
+
+SECONDS_PER_DAY = 86_400
 
 
 class FilterableDocument(Protocol):
@@ -66,6 +69,11 @@ def matches_document_filters(
     ):
         return False
     return True
+
+
+def timestamp_days_ago(days: int) -> int:
+    """Return the epoch time `days` ago, in the form that `created_ts` filters compare."""
+    return int(time.time()) - days * SECONDS_PER_DAY
 
 
 def is_access_allowed(user: UserContext, access_level: str) -> bool:

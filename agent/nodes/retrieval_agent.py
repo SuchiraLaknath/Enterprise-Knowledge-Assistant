@@ -4,7 +4,6 @@ The plan can narrow a search, but access always comes from the verified user. Th
 `state["user"]` through untouched, and `DocumentSearchService` builds the access filter from it.
 """
 
-import time
 from typing import Any
 
 from langgraph.runtime import Runtime
@@ -13,17 +12,17 @@ from agent.dependencies import AgentDependencies
 from agent.schemas import Plan
 from agent.state import AgentState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
+from retrieval.filters import timestamp_days_ago
 from retrieval.models import DocumentFilters
 
 NODE_NAME = "retrieval_agent"
-SECONDS_PER_DAY = 86_400
 
 
 def build_document_filters(plan: Plan) -> DocumentFilters:
     """Turn the plan's narrowing into search filters. These can only reduce what is searched."""
     created_after_ts = None
     if plan.recent_days is not None:
-        created_after_ts = int(time.time()) - plan.recent_days * SECONDS_PER_DAY
+        created_after_ts = timestamp_days_ago(plan.recent_days)
     return DocumentFilters(
         document_types=tuple(plan.document_types), created_after_ts=created_after_ts
     )

@@ -4,8 +4,9 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agent.evidence_formatting import format_evidence_documents
 from agent.graph import build_agent_graph, create_checkpoint_serializer
-from agent.nodes.response_agent import DEGRADED_EXTRACTIVE, format_evidence_documents
+from agent.nodes.response_agent import DEGRADED_EXTRACTIVE
 from agent.nodes.supervisor import DEGRADED_NO_PLAN
 from agent.prompts.response import EVIDENCE_ACKNOWLEDGEMENT, NO_EVIDENCE_ACKNOWLEDGEMENT
 from retrieval.models import SearchResult, UserContext
@@ -35,11 +36,12 @@ def make_dependencies(llm=None, search=None):
 
 async def run_turn(graph, dependencies, question="Why did payments fail?"):
     events = []
-    async for event in graph.astream(
+    async for _subgraph_path, event in graph.astream(
         {"messages": [HumanMessage(question)], "user": VIEWER},
         THREAD_CONFIG,
         context=dependencies,
         stream_mode="custom",
+        subgraphs=True,
     ):
         events.append(event)
     state = await graph.aget_state(THREAD_CONFIG)

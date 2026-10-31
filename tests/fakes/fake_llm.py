@@ -34,7 +34,8 @@ class FakeLlm:
         self.stream_tokens = stream_tokens
         self.received_answer_messages: list[list] = []
         # Replies by output schema, for research. An exception in the list is raised instead.
-        self.replies = {schema: list(values) for schema, values in (replies or {}).items()}
+        # A function instead of a list replies from the messages, for batches sent at once.
+        self.replies = replies or {}
         self.received_structured_calls: list[tuple] = []
 
     async def generate_structured(self, route_name, messages, output_schema):
@@ -42,7 +43,8 @@ class FakeLlm:
         if self.fails:
             raise AllModelsFailedError(route_name, ["fake:model"])
         if output_schema in self.replies:
-            reply = self.replies[output_schema].pop(0)
+            reply_source = self.replies[output_schema]
+            reply = reply_source(messages) if callable(reply_source) else reply_source.pop(0)
             if isinstance(reply, Exception):
                 raise reply
             return GatewayResult(reply, "fake:model")

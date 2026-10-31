@@ -6,13 +6,13 @@ evidence, as cited excerpts that need no LLM.
 """
 
 import re
-from html import escape
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 
 from agent.dependencies import AgentDependencies
+from agent.evidence_formatting import format_evidence_documents, format_research_report
 from agent.llm_gateway import AllModelsFailedError, GatewayResult
 from agent.prompts.response import (
     EVIDENCE_ACKNOWLEDGEMENT,
@@ -20,6 +20,7 @@ from agent.prompts.response import (
     NO_DOCUMENTS_SYSTEM_PROMPT,
     NO_EVIDENCE_ACKNOWLEDGEMENT,
     NO_EVIDENCE_MESSAGE,
+    RESEARCH_MESSAGE_TEMPLATE,
     RESPONSE_SYSTEM_PROMPT,
 )
 from agent.schemas import Citation
@@ -43,23 +44,6 @@ CONVERSATION_NOTE_FOR_EXCERPTS = (
 NO_MODEL_NO_EVIDENCE_REPLY = (
     "I'm sorry, the assistant is temporarily unavailable. Please try again shortly."
 )
-
-
-def format_evidence_documents(evidence: list[RetrievedChunk]) -> str:
-    """Wrap each chunk in document tags, numbered to match its citation marker.
-
-    Rule 5: escaping stops a document from closing its own tag and posing as an instruction.
-    """
-    documents = []
-    for marker, chunk in enumerate(evidence, start=1):
-        title = escape(chunk.title, quote=True)
-        section = escape(chunk.section, quote=True)
-        documents.append(
-            f'<document id="{marker}" title="{title}" section="{section}">\n'
-            f"{escape(chunk.text, quote=False)}\n"
-            "</document>"
-        )
-    return "\n\n".join(documents)
 
 
 def extract_citations(answer: str, evidence: list[RetrievedChunk]) -> list[Citation]:
@@ -121,7 +105,15 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
     if plan is not None and not plan.needs_documents:
         return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT), *conversation]
 
-    if evidence:
+    research_report = state.get("research_report")
+    if research_report is not None:
+        # Findings replace chunk text, so a large investigation never reloads whole documents.
+        evidence_text = RESEARCH_MESSAGE_TEMPLATE.format(
+            documents_analysed=research_report.documents_analysed,
+            report=format_research_report(research_report, evidence),
+        )
+        acknowledgement = EVIDENCE_ACKNOWLEDGEMENT
+    elif evidence:
         evidence_text = EVIDENCE_MESSAGE_TEMPLATE.format(
             documents=format_evidence_documents(evidence)
         )
@@ -194,6 +186,11 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
     # answer may be excerpts that never passed through it. Then link its citations.
     final_answer = clean_final_answer(mask_sensitive_text(answer))
     citations = extract_citations(final_answer, evidence)
+
+    # The notice is fixed text, added here so that a model cannot leave it out or reword it.
+    turn_notice = state.get("turn_notice")
+    if turn_notice:
+        final_answer = f"{final_answer}\n\n{turn_notice}"
 
     # Step 3: only now does the answer join the conversation (rule 9).
     emit_event(EventType.STATE, citation_count=len(citations), degraded=degraded)
