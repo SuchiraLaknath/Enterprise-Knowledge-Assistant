@@ -13,7 +13,7 @@ Three principles drive the design:
 ```mermaid
 flowchart LR
     user([Employee]) --> ui[Streamlit UI<br/>chat and activity panel]
-    ui -- "HTTPS + SSE" --> api[FastAPI<br/>JWT auth, rate limit]
+    ui -- "HTTP + SSE" --> api[FastAPI<br/>JWT auth, rate limit]
     api --> graph[LangGraph<br/>agent graph]
     api <--> redis[(Redis<br/>token buckets)]
 
@@ -27,7 +27,7 @@ flowchart LR
     retrieval -.fallback.-> bm25[Local BM25]
 
     graph --> tools[Tool registry]
-    tools --> mcp[FastMCP server<br/>dummy enterprise data]
+    tools -- "signed role token" --> mcp[FastMCP server<br/>dummy enterprise data]
     tools --> sandbox[Python sandbox]
 
     graph <--> postgres[(Postgres<br/>checkpoints, memory,<br/>feedback, audit)]
@@ -64,8 +64,8 @@ flowchart TD
 | `refuse` | Returns a courteous refusal in the bank's voice | None |
 | `supervisor` | Understands intent, decomposes the task, routes to workers | `response` |
 | `retrieval_agent` | Runs hybrid search with reranking and attribution | None |
-| `research_agent` | Runs the recursive RLM flow for large investigations | `response`, `fast` |
-| `tool_agent` | Executes registered tools after role checks | None |
+| `research_agent` | A subgraph that runs the recursive RLM flow for large investigations | `response`, `fast` |
+| `tool_agent` | Chooses tools, and runs them through the role-checked registry | `fast` |
 | `human_approval` | Pauses the graph until a person approves a write tool | None |
 | `response_agent` | Writes the cited answer and streams a masked draft | `response` |
 | `validator` | Checks citations, brand rules and answer validity | `fast` |
@@ -84,6 +84,7 @@ Workers return typed records with evidence ids to the supervisor, never free tex
 | `evidence` | `retrieval_agent`, `research_agent` | One turn |
 | `errors`, `degraded` | Any node | One turn |
 | `response_retries`, `evidence_retries` | `validator` | One turn |
+| `tool_results`, `pending_approval` | `tool_agent` | One turn |
 
 The checkpointer keeps state between turns, so `load_context` resets the one-turn fields. Without this, an answer could cite evidence from an earlier turn.
 
@@ -127,7 +128,7 @@ flowchart TD
     runner -- "every plan failed" --> retrieval[Plain retrieval]
 ```
 
-Work moves down a level when a batch is too large for one sub-agent, or when a sub-agent reports that the section it was shown does not hold the answer.
+Plans start with half the batches a level allows, so a small job stays flat, and a large one splits one level down and stays inside the limits. Work also moves down a level when a sub-agent reports that a section does not hold the answer, or skips a document, so a summary cannot quietly drop one. If documents in scope are still not covered, the answer says so.
 
 Four choices keep the result honest:
 
@@ -146,7 +147,9 @@ The activity panel shows the generated plan, the batches, the recursion depth, a
 | Rate limit | Per-user Redis token bucket, checked before the graph starts |
 | Request | `input_guard`: deterministic patterns, then an LLM judge |
 | Tools | Filtered at model binding, re-checked before execution, data filtered server-side |
-| Retrieved text | Wrapped in document delimiters, and scanned by `content_guard` |
+| MCP | The role arrives in a token signed by the API, so a header alone earns nothing |
+| Writes | Paused for a person, who approves the stored arguments, and refused if they cannot be audited |
+| Retrieved text | Passes `content_guard`, and is wrapped and escaped in one function, so no path skips it |
 | Generated code | AST whitelist, restricted helpers, CPU limit, no imports |
 | Output | Masked live draft, then `validator` and `output_guard` before the final answer, which keeps no web addresses |
 | Memory | Doc ids only, namespaced by user, and scanned for injection |
@@ -168,7 +171,9 @@ Each failure is contained where it occurs, recorded in `state["degraded"]`, and 
 | One research sub-agent | The other batches continue, and the gap is recorded |
 | Research aggregator | Findings grouped by their own labels |
 | Redis | An in-process token bucket |
-| Postgres | An in-memory checkpointer, with long-term memory off |
+| Postgres | An in-memory checkpointer, chosen per turn, with long-term memory off and writes refused |
+| A failed validation | A retry, then cited excerpts |
+| No evidence found | One wider search, without the plan's narrowing |
 | Invalid request | A structured 422 error |
 | Rate limit exceeded | A 429 response with `Retry-After` |
 
