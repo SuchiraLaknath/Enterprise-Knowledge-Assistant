@@ -128,6 +128,13 @@ class ApiLimits(BaseModel):
     graph_recursion_limit: int = Field(gt=0)
 
 
+class SandboxLimits(BaseModel):
+    """Bounds on generated Python, for RLM plans and `python_analysis` (rule 7)."""
+
+    cpu_seconds: float = Field(gt=0)
+    max_range_items: int = Field(gt=0)
+
+
 class Limits(BaseModel):
     """All operational limits from `config/limits.yaml`."""
 
@@ -138,6 +145,7 @@ class Limits(BaseModel):
     llm: LlmLimits
     conversation: ConversationLimits
     api: ApiLimits
+    sandbox: SandboxLimits
 
 
 class ModelNames(BaseModel):

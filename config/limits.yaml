@@ -72,3 +72,9 @@ api:
   trace_lookup_timeout_s: 3.0
   # Steps a graph may take in one turn, which stops any runaway loop.
   graph_recursion_limit: 25
+
+sandbox:
+  # Seconds of CPU that generated code may use. Waiting on a helper does not count (rule 7).
+  cpu_seconds: 2.0
+  # Largest `range` allowed, because code such as `sorted(range(n))` runs only in C.
+  max_range_items: 10000
