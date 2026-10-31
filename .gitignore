@@ -2,6 +2,7 @@
 Lead AI Assignment.pdf
 CLAUDE.md
 .claude/
+local_docs/
 
 # Secrets: only the empty template is tracked
 .env
