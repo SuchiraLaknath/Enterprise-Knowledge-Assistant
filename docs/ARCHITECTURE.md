@@ -109,22 +109,34 @@ flowchart LR
 
 ## Recursive research (RLM)
 
-Large questions never load whole documents into the LLM context. The planner writes a short Python plan, and the sandbox runs it using helpers that apply the access filter themselves.
+Large questions never load whole documents into the LLM context. `research_agent` is a LangGraph subgraph: the planner writes a short Python plan, and the sandbox runs it using helpers that apply the access filter themselves. The plan handles only ids, titles and dates, and document text stays in the Python session.
 
 ```mermaid
 flowchart TD
-    question[Research question] --> planner[Planner writes Python plan]
-    planner --> sandbox[AST-checked sandbox]
-    sandbox --> explore[explore_documents<br/>survey the catalog]
-    explore --> narrow[search and filter by topic]
+    question[Research question] --> access[check_research_access<br/>role confirmed again]
+    access --> planner[research_planner<br/>writes a Python plan]
+    planner --> runner[research_runner<br/>AST-checked sandbox]
+    runner --> explore[explore_documents<br/>survey the catalog]
+    explore --> narrow[fetch_sections<br/>targeted sections only]
     narrow --> batches[Break into batches]
     batches --> delegate[delegate to sub-agents<br/>depth ≤ 2, ≤ 24 calls]
     delegate --> findings[Typed findings<br/>with evidence ids]
-    findings --> aggregate[Aggregate recurring themes]
+    findings --> aggregate[research_aggregator<br/>model groups, code counts]
     aggregate --> supervisor[Back to supervisor]
+    runner -- "plan failed: regenerate once, then template" --> planner
+    runner -- "every plan failed" --> retrieval[Plain retrieval]
 ```
 
-The activity panel shows the generated plan, the batches, the recursion depth, and the chunks read against the total available.
+Work moves down a level when a batch is too large for one sub-agent, or when a sub-agent reports that the section it was shown does not hold the answer.
+
+Four choices keep the result honest:
+
+- **The planner never sees document text,** only counts of what the employee may read, so a poisoned document cannot shape the code.
+- **Citations are checked.** A sub-agent cites by document tag, and code maps those numbers to the chunks it was really shown.
+- **Code does the counting.** The model decides which findings belong together, and code counts the documents, so a figure in an answer cannot be invented.
+- **The answer uses findings, not chunks,** so the final prompt stays small however many documents were read.
+
+The activity panel shows the generated plan, the batches, the recursion depth, and the chunks read against the total available. Viewers get normal retrieval with a note ([ADR 0003](adr/0003-viewer-research-limit.md)), and the sandbox's limits are in [ADR 0001](adr/0001-sandbox-limits.md).
 
 ## Security layers
 
@@ -152,7 +164,9 @@ Each failure is contained where it occurs, recorded in `state["degraded"]`, and 
 | Pinecone | BM25 search with the same access rules |
 | Reranker or quota | Results in hybrid order |
 | MCP or tool timeout | An answer from the remaining evidence |
-| Invalid RLM plan | A fixed template plan, then plain retrieval |
+| Invalid RLM plan | One regeneration, a fixed template plan, then plain retrieval |
+| One research sub-agent | The other batches continue, and the gap is recorded |
+| Research aggregator | Findings grouped by their own labels |
 | Redis | An in-process token bucket |
 | Postgres | An in-memory checkpointer, with long-term memory off |
 | Invalid request | A structured 422 error |
@@ -168,7 +182,7 @@ Each failure is contained where it occurs, recorded in `state["degraded"]`, and 
 
 ## Observability
 
-Every conversation, agent transition, tool call and retrieval operation is traced in LangSmith, with `user_id`, `role` and `thread_id` as run metadata. The same steps stream to the activity panel as typed events, and a `trace` event follows each answer with a link to its trace. Traces show the structure of a turn and which chunks were used, but document text is redacted before it leaves the process. Logs are structured JSON and never contain tokens, JWTs or document text.
+Every conversation, agent transition, tool call and retrieval operation is traced in LangSmith, with `user_id`, `role` and `thread_id` as run metadata. The same steps stream to the activity panel as typed events, and a `trace` event follows each answer with a link to its trace. Traces show the structure of a turn and which chunks were used, but document text and research findings are redacted before they leave the process. Logs are structured JSON and never contain tokens, JWTs or document text.
 
 ## Decisions
 
