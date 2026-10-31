@@ -20,6 +20,7 @@ async def load_context(state: AgentState) -> dict[str, Any]:
     fresh_turn_state: dict[str, Any] = {
         "plan": None,
         "retrieval_finished": False,
+        "research_allowed": False,
         "research_finished": False,
         "research_report": None,
         "turn_notice": None,

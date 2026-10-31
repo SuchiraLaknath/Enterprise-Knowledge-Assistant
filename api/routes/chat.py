@@ -9,7 +9,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,6 +32,9 @@ router = APIRouter()
 DRAFT_CONFIRMED = "confirmed"
 DRAFT_REPLACED = "replaced"
 TURN_FAILED_MESSAGE = "Something went wrong while answering. Please try again."
+
+# With `subgraphs=True`, each event comes with the path of the subgraph that produced it.
+SubgraphEvent = tuple[tuple[str, ...], dict[str, Any]]
 
 
 class ChatRequest(BaseModel):
@@ -123,12 +126,15 @@ async def stream_chat_turn(
     # Step 2: forward each event as the nodes produce it, tracking the draft the employee sees.
     draft = ""
     try:
-        async for activity_event in services.agent_graph.astream(
+        # `subgraphs=True` is what forwards events from the research subgraph to the panel.
+        async for stream_item in services.agent_graph.astream(
             graph_input,
             run_config,
             context=services.agent_dependencies,
             stream_mode="custom",
+            subgraphs=True,
         ):
+            _subgraph_path, activity_event = cast(SubgraphEvent, stream_item)
             if activity_event["type"] == EventType.TOKEN.value:
                 draft = "" if activity_event.get("reset") else draft + activity_event["text"]
             yield as_sse_message(activity_event)

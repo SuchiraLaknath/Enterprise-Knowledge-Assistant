@@ -13,18 +13,26 @@ from agent.dependencies import AgentDependencies
 from agent.llm_gateway import AllModelsFailedError
 from agent.prompts.supervisor import SUPERVISOR_SYSTEM_PROMPT
 from agent.schemas import Plan
-from agent.state import AgentState
+from agent.state import AgentState, ResearchState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
 
 NODE_NAME = "supervisor"
 # Planning needs the same strong models as answering, so it shares their route.
 PLANNING_ROUTE = "response"
 
+NextNode = Literal["retrieval_agent", "research_agent", "response_agent"]
+
 DEGRADED_MODEL_FALLBACK = "supervisor_used_fallback_model"
 DEGRADED_NO_PLAN = "supervisor_plan_unavailable"
 
+# Fixed text, so that the employee always gets the same courteous explanation.
+RESEARCH_LIMIT_NOTICE = (
+    "Please note: this answer comes from a standard search of the most relevant passages. "
+    "Reading a whole collection of documents is available to analysts and administrators."
+)
 
-def latest_user_text(state: AgentState) -> str:
+
+def latest_user_text(state: AgentState | ResearchState) -> str:
     """Return the employee's newest message."""
     for message in reversed(state["messages"]):
         if isinstance(message, HumanMessage):
@@ -86,22 +94,42 @@ async def supervisor(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
         plan_steps=plan.steps,
         degraded=degraded,
     )
+
+    # Rule 1: the plan may ask for research, but the verified role decides if it happens.
+    wants_research = plan.needs_documents and plan.needs_research
+    research_allowed = wants_research and state["user"].role in runtime.context.research_roles
+    turn_notice = RESEARCH_LIMIT_NOTICE if wants_research and not research_allowed else None
+
     emit_node_finished(NODE_NAME)
-    return {"plan": plan, "degraded": degraded}
+    return {
+        "plan": plan,
+        "degraded": degraded,
+        "research_allowed": research_allowed,
+        "turn_notice": turn_notice,
+    }
 
 
-def choose_next_node(state: AgentState) -> Literal["retrieval_agent", "response_agent"]:
+def _select_next_node(state: AgentState) -> tuple[NextNode, str]:
+    """Return the next node and the reason, from what has already happened this turn."""
+    plan = state["plan"]
+    if plan is None or not plan.needs_documents:
+        return "response_agent", "ready to answer"
+
+    research_finished = state.get("research_finished", False)
+    if state.get("research_allowed", False) and not research_finished:
+        return "research_agent", "many documents must be read and compared"
+
+    # A research report replaces retrieval. A failed run falls back to it.
+    if state.get("research_report") is None and not state.get("retrieval_finished", False):
+        return "retrieval_agent", "documents are needed"
+    return "response_agent", "ready to answer"
+
+
+def choose_next_node(state: AgentState) -> NextNode:
     """Decide where the graph goes next, and report the decision to the activity panel.
 
     This is plain code rather than an LLM decision, so that every loop stays bounded.
     """
-    plan = state["plan"]
-    needs_retrieval = (
-        plan is not None and plan.needs_documents and not state.get("retrieval_finished", False)
-    )
-    next_node: Literal["retrieval_agent", "response_agent"] = (
-        "retrieval_agent" if needs_retrieval else "response_agent"
-    )
-    reason = "documents are needed" if needs_retrieval else "ready to answer"
+    next_node, reason = _select_next_node(state)
     emit_event(EventType.ROUTE, source=NODE_NAME, target=next_node, reason=reason)
     return next_node

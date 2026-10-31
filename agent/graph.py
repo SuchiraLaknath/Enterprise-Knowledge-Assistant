@@ -6,13 +6,14 @@ One turn follows this path:
       load_context        clears what belonged to the previous turn
       supervisor          understands the question and makes a plan
       retrieval_agent     finds evidence, if the plan needs documents
+      research_agent      or investigates many documents, as its own subgraph
       supervisor          sees the worker has returned, and chooses the next step
       response_agent      streams a masked draft, then stores the finished answer
     api/routes/chat.py    sends the `final` event and the trace link
 
 Each node reports its progress with events from `api/events.py`, and the chat route forwards
-them to the activity panel. Later build steps add the guards, research, tools, approval,
-validation and memory nodes shown in `docs/ARCHITECTURE.md`.
+them to the activity panel. Later build steps add the guards, tools, approval, validation and
+memory nodes shown in `docs/ARCHITECTURE.md`.
 """
 
 from typing import Any
@@ -24,6 +25,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent.dependencies import AgentDependencies
 from agent.nodes.load_context import load_context
+from agent.nodes.research_agent import build_research_agent
 from agent.nodes.response_agent import response_agent
 from agent.nodes.retrieval_agent import retrieval_agent
 from agent.nodes.supervisor import choose_next_node, supervisor
@@ -56,6 +58,7 @@ def build_agent_graph(checkpointer: BaseCheckpointSaver[Any]) -> AgentGraph:
     graph.add_node("load_context", load_context)
     graph.add_node("supervisor", supervisor)
     graph.add_node("retrieval_agent", retrieval_agent)
+    graph.add_node("research_agent", build_research_agent())
     graph.add_node("response_agent", response_agent)
 
     graph.add_edge(START, "load_context")
@@ -63,6 +66,7 @@ def build_agent_graph(checkpointer: BaseCheckpointSaver[Any]) -> AgentGraph:
     # Workers return to the supervisor, which decides what happens next.
     graph.add_conditional_edges("supervisor", choose_next_node)
     graph.add_edge("retrieval_agent", "supervisor")
+    graph.add_edge("research_agent", "supervisor")
     graph.add_edge("response_agent", END)
 
     return graph.compile(checkpointer=checkpointer)

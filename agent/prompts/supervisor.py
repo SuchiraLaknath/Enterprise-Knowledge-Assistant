@@ -23,6 +23,9 @@ Guidance:
   messages. Keep ids and error codes exactly as written.
 - Leave departments and document_types empty unless the question clearly points to them. A
   needless filter can hide the right document.
+- Set needs_research to true when the answer needs many documents read and compared, such as
+  summarising all reports on a topic, finding recurring causes or spotting trends. Keep it false
+  for a question about one policy, one incident or one fact, which a normal search answers.
 - Set recent_days only when the employee asks about a period, such as "last month" (30) or
   "last year" (365).
 

@@ -11,7 +11,7 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
-from agent.schemas import Citation, Plan, ResearchReport
+from agent.schemas import Citation, Finding, Plan, ResearchReport
 from retrieval.models import RetrievedChunk, UserContext
 
 
@@ -27,6 +27,7 @@ class AgentState(TypedDict, total=False):
     # Per-turn fields, reset by `load_context`.
     plan: Plan | None
     retrieval_finished: bool
+    research_allowed: bool
     research_finished: bool
     research_report: ResearchReport | None
     # A fixed sentence added to the answer, such as why deep research was not used.
@@ -39,3 +40,36 @@ class AgentState(TypedDict, total=False):
     # The answer shown this turn. It can differ from the message stored in the conversation.
     final_answer: str
     final_citations: list[Citation]
+
+
+class ResearchInput(TypedDict, total=False):
+    """What the research subgraph takes from the main graph."""
+
+    user: UserContext
+    plan: Plan | None
+    messages: Annotated[list[BaseMessage], add_messages]
+
+
+class ResearchOutput(TypedDict, total=False):
+    """What the research subgraph gives back. Only new evidence is returned, never old."""
+
+    evidence: Annotated[list[RetrievedChunk], operator.add]
+    degraded: Annotated[list[str], operator.add]
+    research_report: ResearchReport | None
+    research_finished: bool
+
+
+class ResearchState(ResearchInput, ResearchOutput, total=False):
+    """Everything the subgraph tracks during one research run."""
+
+    access_confirmed: bool
+    # The plan ladder: which attempt this is, the code tried and how it failed.
+    plan_attempt: int
+    plan_code: str
+    plan_error: str
+    can_replan: bool
+    findings: list[Finding]
+    # Calls carry across attempts, because the budget is per run (rule 7).
+    sub_agent_calls_used: int
+    chunks_read: int
+    depth_reached: int
