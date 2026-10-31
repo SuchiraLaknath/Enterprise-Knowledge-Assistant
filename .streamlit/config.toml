@@ -7,3 +7,11 @@ address = "localhost"
 [browser]
 # Rule 6: the app sends nothing to outside services.
 gatherUsageStats = false
+
+[client]
+# Hides the Deploy button, which has no use in this app.
+toolbarMode = "minimal"
+
+[theme]
+# Neutral blue. Streamlit's default red made the message box look like an error.
+primaryColor = "#2a78d6"

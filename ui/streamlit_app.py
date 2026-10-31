@@ -28,6 +28,7 @@ from ui.event_formatting import (  # noqa: E402
     apply_token_event,
     describe_degraded,
     describe_turn_status,
+    describe_waiting_step,
     parse_sse_line,
     update_turn_status,
 )
@@ -38,6 +39,10 @@ REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=10.0, pool=5.0)
 THUMBS_UP_POSITION = 1
 UNKNOWN_QUESTION = "(not recorded)"
 
+APPROVAL_REQUEST_MESSAGE = (
+    "This action changes data, and needs your approval. Nothing has changed yet."
+)
+DRAFT_NOTE = "Draft. Not checked yet."
 MESSAGE_BOX_HINT = "Ask about policies, runbooks, incidents and more"
 APPROVAL_WAITING_HINT = "Approve or reject the action first"
 API_UNREACHABLE_MESSAGE = "The assistant could not be reached. Please try again."
@@ -53,16 +58,18 @@ ACTIVITY_PANEL_KEY = "activity_panel"
 # Streamlit only scrolls and follows new text in a container with a height in pixels, so the
 # panels are created with this height, and the style below replaces it to fit the window.
 PANEL_HEIGHT_PIXELS = 480
-# The height leaves room for the panel titles and the message box, so the page itself never
+# The height leaves room for the titles, status line and message box, so the page itself never
 # scrolls and the message box stays in view. Streamlit sets the height on the wrapper around each
 # panel, so the rule targets that wrapper. The text here is fixed and holds no user content.
 PANEL_LAYOUT_STYLE = f"""
 <style>
-.stMainBlockContainer {{ padding-top: 3.75rem !important; padding-bottom: 0 !important; }}
+.stMainBlockContainer {{ padding-top: 2.5rem !important; padding-bottom: 0 !important; }}
+.stMainBlockContainer h3 {{ font-size: 1.15rem; padding: 0 0 0.5rem; }}
+.st-key-{ACTIVITY_PANEL_KEY} code {{ font-size: 0.78rem; }}
 [data-testid="stLayoutWrapper"]:has(> .st-key-{CONVERSATION_PANEL_KEY}),
 [data-testid="stLayoutWrapper"]:has(> .st-key-{ACTIVITY_PANEL_KEY}) {{
-    flex-basis: calc(100dvh - 16rem) !important;
-    height: calc(100dvh - 16rem) !important;
+    flex-basis: calc(100dvh - 15rem) !important;
+    height: calc(100dvh - 15rem) !important;
 }}
 </style>
 """
@@ -156,11 +163,14 @@ def send_rating(final_event: dict[str, Any], thumbs_position: int) -> None:
         "question": final_event.get("question") or UNKNOWN_QUESTION,
     }
     try:
-        httpx.post(
+        response = httpx.post(
             api_url("/feedback"), json=payload, headers=auth_headers(), timeout=REQUEST_TIMEOUT
         )
+        response.raise_for_status()
     except httpx.HTTPError:
-        st.caption("Your rating could not be saved.")
+        st.toast("Your rating could not be saved.")
+    else:
+        st.toast("Thank you. Your rating was saved.")
 
 
 def show_answer_details(final_event: dict[str, Any]) -> None:
@@ -225,6 +235,7 @@ def show_streamed_turn(events: Any, activity_view: ActivityView, question: str) 
     error_was_shown = False
     with st.chat_message("assistant"):
         answer_area = st.empty()
+        draft_note = st.empty()
         draft = ""
         final_event: dict[str, Any] | None = None
 
@@ -235,10 +246,13 @@ def show_streamed_turn(events: Any, activity_view: ActivityView, question: str) 
                     draft = apply_token_event(draft, event)
                     # Rule 9: a draft is plain text, so an injected image URL can never load.
                     answer_area.text(draft)
+                    # Without this, a draft replaced by the validator would look like a glitch.
+                    draft_note.text(DRAFT_NOTE)
                 elif event["type"] == "final":
                     final_event = event
                     # Show the answer now, rather than after the trace link arrives.
                     answer_area.markdown(final_event["answer"])
+                    draft_note.empty()
                 elif event["type"] == "trace" and final_event is not None:
                     final_event["trace_url"] = event["url"]
                 elif event["type"] == SESSION_EXPIRED_EVENT:
@@ -250,6 +264,9 @@ def show_streamed_turn(events: Any, activity_view: ActivityView, question: str) 
                     if event["type"] == "approval":
                         st.session_state.pending_approval = event
                     add_activity_event(st.session_state.activity_lines, event)
+                    # Research can take 20 seconds to its first word, so say what is happening.
+                    if not draft and final_event is None:
+                        answer_area.text(describe_waiting_step(st.session_state.turn_status))
                 activity_view.refresh()
         except httpx.HTTPError:
             st.error(API_UNREACHABLE_MESSAGE)
@@ -259,6 +276,7 @@ def show_streamed_turn(events: Any, activity_view: ActivityView, question: str) 
         # must not leave an unconfirmed draft on the screen.
         if final_event is None:
             answer_area.empty()
+            draft_note.empty()
             # A pause is not a failure, because the approval box comes next.
             if not error_was_shown and "pending_approval" not in st.session_state:
                 st.error(NO_ANSWER_MESSAGE)
@@ -302,11 +320,12 @@ def show_pending_approval(activity_view: ActivityView) -> None:
     if pending_call is None:
         return
     with st.chat_message("assistant"):
-        st.warning("This action changes data, and needs your approval.")
+        st.warning(APPROVAL_REQUEST_MESSAGE)
         # Plain text, because a tool's arguments came from a model.
-        st.text(f"{pending_call['tool_name']}\n{json.dumps(pending_call['arguments'], indent=2)}")
-        approve_column, reject_column = st.columns(2)
-        if approve_column.button("Approve", key="approve_tool_call"):
+        st.text(pending_call["tool_name"])
+        st.code(json.dumps(pending_call["arguments"], indent=2), language=None, wrap_lines=True)
+        approve_column, reject_column, _ = st.columns([1, 1, 3])
+        if approve_column.button("Approve", key="approve_tool_call", type="primary"):
             run_approval_turn(True, activity_view)
             st.rerun()
         if reject_column.button("Reject", key="reject_tool_call"):
@@ -332,15 +351,18 @@ def choose_starter_question(question: str) -> None:
 
 def show_starter_questions() -> None:
     """Fill an empty chat with questions that show what this user can do."""
-    st.write("Try one of these questions, or type your own below.")
-    for question in DEMO_USERS[st.session_state.username].starter_questions:
-        st.button(
-            question,
-            key=f"starter_{question}",
-            on_click=choose_starter_question,
-            args=(question,),
-            width="stretch",
-        )
+    # One container, because Streamlit keeps a removed element on screen, faded, until a run ends.
+    # Replacing a single block removes all the buttons at once when a question is sent.
+    with st.container():
+        st.write("Try one of these questions, or type your own below.")
+        for question in DEMO_USERS[st.session_state.username].starter_questions:
+            st.button(
+                question,
+                key=f"starter_{question}",
+                on_click=choose_starter_question,
+                args=(question,),
+                width="stretch",
+            )
 
 
 def main() -> None:
@@ -355,10 +377,11 @@ def main() -> None:
         st.caption("Commercial Bank internal assistant. All data is mock data.")
         show_sign_in()
 
-    chat_column, activity_column = st.columns([3, 2])
+    # Above both columns, so that the two panels start level and end level.
+    status_line = st.empty()
+    chat_column, activity_column = st.columns([5, 4])
     with activity_column:
         st.subheader("Agent activity")
-        status_line = st.empty()
         with st.container(height=PANEL_HEIGHT_PIXELS, key=ACTIVITY_PANEL_KEY, autoscroll=True):
             activity_view = ActivityView(status_line, st.empty())
         activity_view.refresh()

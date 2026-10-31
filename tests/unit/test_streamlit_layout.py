@@ -76,7 +76,7 @@ def test_a_turn_that_pauses_for_approval_leaves_no_empty_bubble():
     assert not app.exception
     assert [message.name for message in app.chat_message] == ["user", "assistant"]
     assert [notice.value for notice in app.warning] == [
-        "This action changes data, and needs your approval."
+        "This action changes data, and needs your approval. Nothing has changed yet."
     ]
 
 
@@ -150,3 +150,38 @@ def test_an_empty_chat_offers_questions_that_send_when_clicked():
     )
     # The chat is no longer empty, so the suggestions make way for the conversation.
     assert not [button for button in app.button if button.key and button.key.startswith("starter_")]
+
+
+def test_a_rating_says_whether_it_was_saved():
+    # A thumb click with no reply looks as if it did nothing.
+    app = render_page(signed_in=True)
+    answer_line = (
+        'data: {"type": "final", "run_id": "run-1", "answer": "Five days.", '
+        '"citations": [], "degraded": []}'
+    )
+    with patch("httpx.stream", return_value=make_streamed_response(event_lines=[answer_line])):
+        app.chat_input[0].set_value("Hello").run()
+
+    saved_reply = MagicMock()
+    with patch("httpx.post", return_value=saved_reply):
+        app.session_state["rating_run-1"] = 1
+        app.run()
+
+    assert [toast.value for toast in app.toast] == ["Thank you. Your rating was saved."]
+
+
+def test_the_reduced_service_notice_uses_plain_sentences_and_keeps_the_ids():
+    app = render_page(signed_in=True)
+    raw_id = "supervisor_used_fallback_model:anthropic:claude-sonnet-5-5"
+    answer_line = (
+        'data: {"type": "final", "run_id": "run-2", "answer": "Five days.", "citations": [], '
+        f'"degraded": ["{raw_id}"]}}'
+    )
+
+    with patch("httpx.stream", return_value=make_streamed_response(event_lines=[answer_line])):
+        app.chat_input[0].set_value("Hello").run()
+
+    assert [notice.value for notice in app.warning] == [
+        "Reduced service: A backup AI model answered some steps."
+    ]
+    assert raw_id in [block.value for block in app.text]
