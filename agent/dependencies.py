@@ -12,7 +12,14 @@ from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
 from agent.llm_gateway import DraftResetHandler, GatewayResult, TextHandler, ToolCallRequest
-from config.settings import ResearchLimits, SandboxLimits, ToolLimits
+from agent.memory_store import LongTermMemory
+from config.settings import (
+    ConversationLimits,
+    ResearchLimits,
+    SandboxLimits,
+    ToolLimits,
+    ValidationLimits,
+)
 from retrieval.catalog import DocumentCatalog
 from retrieval.models import DocumentFilters, SearchResult, UserContext
 from tools.models import AuditRecorder, McpCaller
@@ -81,9 +88,12 @@ class AgentDependencies:
     document_search: DocumentSearcher
     document_catalog: DocumentCatalog
     history_message_count: int
+    conversation_limits: ConversationLimits
+    long_term_memory: LongTermMemory
     research_limits: ResearchLimits
     sandbox_limits: SandboxLimits
     tool_limits: ToolLimits
+    validation_limits: ValidationLimits
     tool_registry: ToolRegistry
     audit_log: AuditRecorder
     mcp_client: McpCaller

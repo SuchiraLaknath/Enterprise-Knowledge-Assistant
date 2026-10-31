@@ -2,6 +2,7 @@ import pytest
 from fastmcp import Client
 
 from mcp_server import server
+from mcp_server.headers import USER_ROLE_HEADER
 from mcp_server.server import mcp
 
 
@@ -9,7 +10,7 @@ from mcp_server.server import mcp
 def call_as(monkeypatch):
     # The real client sends the role as a header, so these tests set the same header directly.
     async def call(role, tool_name, arguments=None):
-        headers = {server.USER_ROLE_HEADER: role} if role else {}
+        headers = {USER_ROLE_HEADER: role} if role else {}
         monkeypatch.setattr(server, "get_http_headers", lambda: headers)
         async with Client(mcp) as client:
             result = await client.call_tool(tool_name, arguments or {})

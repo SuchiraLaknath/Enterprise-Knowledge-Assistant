@@ -87,6 +87,7 @@ async def test_a_tool_question_runs_the_tool_and_answers_from_it():
         "supervisor",
         "response_agent",
         "validator",
+        "memory_writer",
     ]
     assert tool_events(events)[0]["tool_name"] == "mcp.service_catalog"
     assert tool_events(events)[0]["status"] == "ok"

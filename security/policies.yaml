@@ -40,6 +40,7 @@ content:
     - 'include this (image|link)\b'
     - '\b(assistant|ai|chatbot|model)\s*[:,]\s*(you must|please|always|never|do not)\b'
     - '^\s*(system|assistant)\s*:'
+    - '\bthe (assistant|chatbot)\b.{0,20}\b(must|should|always|never)\b'
 
 brand:
   # Advice the assistant must not give on the bank's behalf.

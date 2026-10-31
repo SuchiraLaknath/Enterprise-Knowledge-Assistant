@@ -13,8 +13,9 @@ from pathlib import Path
 import yaml
 
 POLICIES_PATH = Path(__file__).parent / "policies.yaml"
-# Characters that render as nothing, which split a word without changing how it looks.
-INVISIBLE_CHARACTERS = re.compile("[​‌‍⁠﻿­]")
+# Characters that render as nothing, which split a word without changing how it looks: zero-width
+# space, non-joiner and joiner, word joiner, byte-order mark and soft hyphen.
+INVISIBLE_CHARACTERS = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad]")
 WHITESPACE_RUN = re.compile(r"\s+")
 
 CompiledPatterns = dict[str, list[re.Pattern[str]]]
@@ -24,9 +25,9 @@ CompiledPatterns = dict[str, list[re.Pattern[str]]]
 class SecurityPolicies:
     """The compiled patterns of each guard, by category."""
 
-    input: CompiledPatterns
-    content: CompiledPatterns
-    brand: CompiledPatterns
+    input_patterns: CompiledPatterns
+    content_patterns: CompiledPatterns
+    brand_patterns: CompiledPatterns
 
 
 def normalize_text(text: str) -> str:
@@ -50,9 +51,9 @@ def get_security_policies() -> SecurityPolicies:
     with POLICIES_PATH.open(encoding="utf-8") as policies_file:
         raw_policies = yaml.safe_load(policies_file)
     return SecurityPolicies(
-        input=_compile_section(raw_policies["input"]),
-        content=_compile_section(raw_policies["content"]),
-        brand=_compile_section(raw_policies["brand"]),
+        input_patterns=_compile_section(raw_policies["input"]),
+        content_patterns=_compile_section(raw_policies["content"]),
+        brand_patterns=_compile_section(raw_policies["brand"]),
     )
 
 

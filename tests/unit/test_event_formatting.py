@@ -177,3 +177,19 @@ def test_tool_events_show_the_call_and_its_outcome():
     assert "mcp.service_catalog" in description
     assert "Card Switch" in description
     assert "ok" in description
+
+
+def test_memory_events_show_the_operation_and_tier():
+    description = describe_event(
+        {"type": "memory", "operation": "write", "tier": "summary", "item_count": 6}
+    )
+
+    assert description == "  Memory write (summary): 6 items"
+
+
+def test_validation_events_show_the_status_and_reasons():
+    description = describe_event(
+        {"type": "validation", "check": "validator", "status": "fail", "reasons": ["Dead [9]."]}
+    )
+
+    assert description == "  Check validator: fail: Dead [9]."

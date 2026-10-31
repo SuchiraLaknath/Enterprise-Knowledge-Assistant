@@ -14,9 +14,9 @@ from fastmcp.server.dependencies import get_http_headers
 
 from config.settings import get_role_access
 from mcp_server.enterprise_data import EMPLOYEES, INCIDENTS, SERVICES
+from mcp_server.headers import USER_ROLE_HEADER
 
 SERVER_NAME = "enterprise-data"
-USER_ROLE_HEADER = "x-user-role"
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8001
 HTTP_TRANSPORT = "http"
@@ -30,6 +30,11 @@ def allowed_access_levels() -> tuple[str, ...]:
     return get_role_access().roles.get(role, ())
 
 
+def is_known_role() -> bool:
+    """Return whether the caller has a real role. People and services carry no access level."""
+    return bool(allowed_access_levels())
+
+
 def _matches(value: str, search_text: str) -> bool:
     """Compare ignoring case, where an empty search matches everything."""
     return search_text.lower() in value.lower()
@@ -38,8 +43,8 @@ def _matches(value: str, search_text: str) -> bool:
 @mcp.tool
 def employee_directory(name: str = "", department: str = "") -> list[dict[str, Any]]:
     """Find employees by part of a name, or by department."""
-    # Rule 2: any recognised role may look people up, but an unknown caller sees nothing.
-    if not allowed_access_levels():
+    # Rule 2: any known role may look people up, but an unknown caller sees nothing.
+    if not is_known_role():
         return []
     return [
         employee
@@ -51,7 +56,8 @@ def employee_directory(name: str = "", department: str = "") -> list[dict[str, A
 @mcp.tool
 def service_catalog(service_name: str = "") -> list[dict[str, Any]]:
     """Find services, with their owner, tier and on-call rota."""
-    if not allowed_access_levels():
+    # Rule 2: as for the directory, an unknown caller sees nothing.
+    if not is_known_role():
         return []
     return [service for service in SERVICES if _matches(service["name"], service_name)]
 

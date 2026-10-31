@@ -11,6 +11,7 @@ from pydantic import Field
 from agent.schemas import Department, DocumentType
 from retrieval.models import DocumentFilters
 from tools.models import ToolArguments, ToolContext, ToolResult
+from tools.tracing import hide_tool_inputs
 
 TOOL_NAME = "knowledge_search"
 
@@ -27,7 +28,7 @@ class KnowledgeSearchArguments(ToolArguments):
     )
 
 
-@traceable(name=TOOL_NAME, run_type="tool", process_inputs=lambda inputs: {})
+@traceable(name=TOOL_NAME, run_type="tool", process_inputs=hide_tool_inputs)
 async def search_knowledge(arguments: KnowledgeSearchArguments, context: ToolContext) -> ToolResult:
     """Search and return attributed chunks, with no document text in the tool's own data."""
     search_result = await context.document_search.search(

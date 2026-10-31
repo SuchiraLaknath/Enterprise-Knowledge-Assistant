@@ -133,7 +133,7 @@ async def stream_chat_turn(
 
     # Step 2: use Postgres if it can answer. A turn must not fail because a database did.
     agent_graph = services.agent_graph
-    if not await services.checkpoint_store.is_available():
+    if not await services.checkpoint_availability.is_available():
         agent_graph = services.in_memory_graph
         graph_input["request_degraded"] = [*request_degraded, DEGRADED_IN_MEMORY_CHECKPOINTS]
 

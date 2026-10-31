@@ -138,6 +138,11 @@ def _describe_validation(event: dict[str, Any]) -> str:
     return f"  Check {event['check']}: {event['status']}{reasons}"
 
 
+def _describe_memory(event: dict[str, Any]) -> str:
+    """Show a memory read or write."""
+    return f"  Memory {event['operation']} ({event['tier']}): {event['item_count']} items"
+
+
 EVENT_DESCRIPTIONS = {
     "node": _describe_node,
     "state": _describe_state,
@@ -145,6 +150,7 @@ EVENT_DESCRIPTIONS = {
     "retrieval": _describe_retrieval,
     "research": _describe_research,
     "tool": _describe_tool,
+    "memory": _describe_memory,
     "validation": _describe_validation,
 }
 

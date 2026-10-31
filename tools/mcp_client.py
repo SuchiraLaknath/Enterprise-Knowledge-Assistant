@@ -11,10 +11,10 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from langsmith import traceable
 
+from mcp_server.headers import USER_ROLE_HEADER
 from retrieval.models import UserContext
+from tools.tracing import hide_tool_inputs
 
-USER_ID_HEADER = "x-user-id"
-USER_ROLE_HEADER = "x-user-role"
 MCP_FAULT = "mcp"
 
 
@@ -30,14 +30,7 @@ class McpClient:
         self._server_url = server_url
         self._enabled_faults = enabled_faults
 
-    @traceable(
-        name="mcp_tool",
-        run_type="tool",
-        process_inputs=lambda inputs: {
-            "tool_name": inputs["tool_name"],
-            "role": inputs["user"].role,
-        },
-    )
+    @traceable(name="mcp_tool", run_type="tool", process_inputs=hide_tool_inputs)
     async def call_tool(
         self, tool_name: str, arguments: dict[str, Any], user: UserContext, timeout_s: float
     ) -> Any:
@@ -48,7 +41,7 @@ class McpClient:
         # Rule 2: the verified role goes in the headers, and never in the arguments.
         transport = StreamableHttpTransport(
             self._server_url,
-            headers={USER_ID_HEADER: user.user_id, USER_ROLE_HEADER: user.role},
+            headers={USER_ROLE_HEADER: user.role},
         )
         async with Client(transport) as client:
             result = await client.call_tool(tool_name, arguments, timeout=timeout_s)

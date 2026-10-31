@@ -7,6 +7,10 @@ from pydantic import Field
 
 from tools.models import ToolArguments, ToolContext, ToolResult
 
+EMPLOYEE_DIRECTORY_TOOL = "mcp.employee_directory"
+SERVICE_CATALOG_TOOL = "mcp.service_catalog"
+INCIDENT_RECORDS_TOOL = "mcp.incident_records"
+
 
 class EmployeeDirectoryArguments(ToolArguments):
     """Find employees by name or department."""
@@ -45,16 +49,16 @@ async def look_up_employees(
     arguments: EmployeeDirectoryArguments, context: ToolContext
 ) -> ToolResult:
     """Call `employee_directory`."""
-    return await _call_mcp_tool("mcp.employee_directory", "employee_directory", arguments, context)
+    return await _call_mcp_tool(EMPLOYEE_DIRECTORY_TOOL, "employee_directory", arguments, context)
 
 
 async def look_up_services(arguments: ServiceCatalogArguments, context: ToolContext) -> ToolResult:
     """Call `service_catalog`."""
-    return await _call_mcp_tool("mcp.service_catalog", "service_catalog", arguments, context)
+    return await _call_mcp_tool(SERVICE_CATALOG_TOOL, "service_catalog", arguments, context)
 
 
 async def look_up_incidents(
     arguments: IncidentRecordsArguments, context: ToolContext
 ) -> ToolResult:
     """Call `incident_records`."""
-    return await _call_mcp_tool("mcp.incident_records", "incident_records", arguments, context)
+    return await _call_mcp_tool(INCIDENT_RECORDS_TOOL, "incident_records", arguments, context)

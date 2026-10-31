@@ -27,7 +27,12 @@ class AgentState(TypedDict, total=False):
     # The conversation. Only finished answers are added, never a streaming draft (rule 9).
     messages: Annotated[list[BaseMessage], add_messages]
 
+    # A rolling summary of older turns. It lasts for the conversation.
+    conversation_summary: str
+
     # Per-turn fields, reset by `load_context`.
+    # What the employee shared earlier, as prompt text marked as data.
+    memory_context: str
     plan: Plan | None
     retrieval_finished: bool
     research_allowed: bool
@@ -43,6 +48,8 @@ class AgentState(TypedDict, total=False):
     validation_feedback: str
     # Stored in the conversation instead of the answer, for excerpts that are raw document text.
     conversation_note: str | None
+    # True when no model wrote this answer, so the validator's judge has nothing to check.
+    answer_is_excerpts: bool
     # A fixed sentence added to the answer, such as why deep research was not used.
     turn_notice: str | None
     evidence: Annotated[list[RetrievedChunk], operator.add]

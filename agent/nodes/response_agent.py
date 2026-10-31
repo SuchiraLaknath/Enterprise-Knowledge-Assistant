@@ -137,14 +137,15 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
     conversation = [remove_citation_markers(message) for message in recent_messages]
 
     has_tool_results = bool(state.get("tool_results"))
+    memory_context = state.get("memory_context", "")
     if plan is not None and not plan.needs_documents and not has_tool_results:
-        return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT), *conversation]
+        return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT + memory_context), *conversation]
 
     # Rule 5: the documents sit in a user turn, followed by a fixed reply that labels them as
     # data, so they never read as instructions. The employee's question comes last.
     evidence_text, acknowledgement = build_evidence_text(state)
     answer_messages: list[BaseMessage] = [
-        SystemMessage(RESPONSE_SYSTEM_PROMPT),
+        SystemMessage(RESPONSE_SYSTEM_PROMPT + memory_context),
         HumanMessage(evidence_text),
         AIMessage(acknowledgement),
         *conversation,
@@ -199,9 +200,11 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
         answer_result = await _stream_masked_answer(answer_messages, runtime.context)
         answer = answer_result.value
         conversation_note = None
+        answer_is_excerpts = False
         degraded.extend(answer_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK))
     except AllModelsFailedError:
         answer = build_extractive_answer(evidence)
+        answer_is_excerpts = True
         degraded.append(DEGRADED_EXTRACTIVE)
         # Rule 5: excerpts are raw document text, so they must not join the conversation,
         # where later turns would read them as the assistant's own words.
@@ -226,6 +229,7 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
     emit_node_finished(NODE_NAME)
     return {
         "conversation_note": conversation_note,
+        "answer_is_excerpts": answer_is_excerpts,
         "final_answer": final_answer,
         "final_citations": citations,
         "degraded": degraded,

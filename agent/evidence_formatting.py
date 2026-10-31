@@ -9,6 +9,7 @@ tags from LangSmith.
 import json
 from html import escape
 
+from agent.prompts.memory_writer import MEMORY_CONTEXT_TEMPLATE
 from agent.schemas import Finding, ResearchReport
 from retrieval.models import RetrievedChunk
 from security.content_guard import remove_injected_sentences
@@ -55,6 +56,20 @@ def format_tool_results(tool_results: list[ToolResult]) -> str:
             "</tool_result>"
         )
     return "\n\n".join(result_tags)
+
+
+def format_memory_context(summary: str, facts: list[str]) -> str:
+    """Return earlier context as prompt text, marked as background (rule 5).
+
+    A summary is model text about a conversation that held documents, so it is cleaned like them.
+    """
+    memory_lines = []
+    if summary:
+        memory_lines.append(f"Earlier in this conversation: {_make_safe(summary, quote=False)}")
+    memory_lines.extend(f"- {_make_safe(fact, quote=False)}" for fact in facts)
+    if not memory_lines:
+        return ""
+    return MEMORY_CONTEXT_TEMPLATE.format(memory_text="\n".join(memory_lines))
 
 
 def _format_finding_tags(finding: Finding, marker_by_chunk_id: dict[str, int]) -> list[str]:

@@ -18,7 +18,7 @@ REMOVED_TEXT_NOTICE = "[text removed by the content guard]"
 
 def contains_injection(text: str) -> bool:
     """Return whether any part of this text speaks to the assistant."""
-    return find_matching_category(text, get_security_policies().content) is not None
+    return find_matching_category(text, get_security_policies().content_patterns) is not None
 
 
 def remove_injected_sentences(text: str) -> str:
@@ -27,11 +27,12 @@ def remove_injected_sentences(text: str) -> str:
     if not contains_injection(text):
         return text
 
-    injection_patterns = get_security_policies().content
+    injection_patterns = get_security_policies().content_patterns
     cleaned_sentences = []
     for sentence in SENTENCE_BOUNDARY.split(text):
         if find_matching_category(sentence, injection_patterns):
             cleaned_sentences.append(REMOVED_TEXT_NOTICE)
         else:
             cleaned_sentences.append(sentence)
+    # Joined with spaces: a poisoned passage loses its layout, which is fine for a model to read.
     return " ".join(cleaned_sentences)

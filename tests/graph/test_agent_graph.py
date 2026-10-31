@@ -73,6 +73,7 @@ async def test_a_document_question_runs_plan_retrieve_answer_in_order(graph):
         "supervisor",
         "response_agent",
         "validator",
+        "memory_writer",
     ]
     assert state["final_answer"] == "Payments failed because a certificate expired [1]."
     assert [citation.chunk_id for citation in state["final_citations"]] == ["DOC#c0"]

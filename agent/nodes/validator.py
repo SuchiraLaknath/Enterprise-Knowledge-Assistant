@@ -23,7 +23,6 @@ from agent.llm_gateway import AllModelsFailedError
 from agent.nodes.response_agent import (
     CITATION_MARKER_PATTERN,
     CONVERSATION_NOTE_FOR_EXCERPTS,
-    DEGRADED_EXTRACTIVE,
     build_evidence_text,
     build_extractive_answer,
     extract_citations,
@@ -43,9 +42,6 @@ logger = structlog.get_logger()
 
 NODE_NAME = "validator"
 JUDGE_ROUTE = "fast"
-CHECK_NAME = "validator"
-MAX_RESPONSE_RETRIES = 2
-MAX_EVIDENCE_RETRIES = 1
 
 DEGRADED_JUDGE_UNAVAILABLE = "answer_judge_unavailable"
 DEGRADED_MODEL_FALLBACK = "validator_used_fallback_model"
@@ -104,7 +100,7 @@ async def _ask_judge(
     return [judgement.problem or "The answer failed the judge's check."], degraded
 
 
-def _needs_wider_search(state: AgentState) -> bool:
+def _needs_wider_search(state: AgentState, max_evidence_retries: int) -> bool:
     """Return whether nothing was found, and one wider search is still allowed."""
     plan = state.get("plan")
     return (
@@ -112,7 +108,7 @@ def _needs_wider_search(state: AgentState) -> bool:
         and plan.needs_documents
         and not state.get("evidence")
         and state.get("research_report") is None
-        and state.get("evidence_retries", 0) < MAX_EVIDENCE_RETRIES
+        and state.get("evidence_retries", 0) < max_evidence_retries
     )
 
 
@@ -141,7 +137,7 @@ def _finish_turn(
 
 
 def _replace_with_excerpts(
-    state: AgentState, report: ValidationReport, degraded: list[str]
+    state: AgentState, problems: list[str], degraded: list[str]
 ) -> dict[str, Any]:
     """Show cited excerpts instead, as the retries are used up. They cannot go off-brand."""
     evidence = state.get("evidence", [])
@@ -149,7 +145,7 @@ def _replace_with_excerpts(
     doc_ids = ", ".join(sorted({chunk.doc_id for chunk in evidence})) or "none"
     # Rule 5: excerpts are raw document text, so the conversation keeps only a short note.
     return {
-        "validation_report": report,
+        "validation_report": ValidationReport(status="replaced_with_excerpts", reasons=problems),
         "final_answer": excerpts,
         "final_citations": extract_citations(excerpts, evidence),
         "messages": [AIMessage(CONVERSATION_NOTE_FOR_EXCERPTS.format(doc_ids=doc_ids))],
@@ -164,19 +160,22 @@ async def validator(state: AgentState, runtime: Runtime[AgentDependencies]) -> d
     evidence = state.get("evidence", [])
 
     # Step 1: nothing was found, so try once more before accepting that.
-    if _needs_wider_search(state):
+    limits = runtime.context.validation_limits
+    if _needs_wider_search(state, limits.max_evidence_retries):
         plan = state["plan"]
         assert plan is not None
         report = ValidationReport(status="insufficient_evidence", reasons=["No evidence found."])
+        evidence_retries = state.get("evidence_retries", 0) + 1
         emit_event(
-            EventType.VALIDATION, check=CHECK_NAME, status=report.status, reasons=report.reasons
+            EventType.VALIDATION, check=NODE_NAME, status=report.status, reasons=report.reasons
         )
+        emit_event(EventType.STATE, evidence_retries=evidence_retries)
         emit_node_finished(NODE_NAME)
         return {
             "validation_report": report,
             "plan": _widen_plan(plan, latest_user_text(state)),
             "retrieval_finished": False,
-            "evidence_retries": state.get("evidence_retries", 0) + 1,
+            "evidence_retries": evidence_retries,
         }
 
     # Step 2: code's checks come first, as they are instant and exact (rule 4).
@@ -184,23 +183,24 @@ async def validator(state: AgentState, runtime: Runtime[AgentDependencies]) -> d
     degraded: list[str] = []
 
     # Step 3: the judge reads for sense. Excerpts are skipped, as they quote the evidence itself.
-    is_excerpts = DEGRADED_EXTRACTIVE in state.get("degraded", [])
-    if not problems and not is_excerpts:
+    if not problems and not state.get("answer_is_excerpts", False):
         problems, degraded = await _ask_judge(state, runtime.context)
 
     # Step 4: act on the result.
     report = ValidationReport(status="fail" if problems else "pass", reasons=problems)
-    emit_event(EventType.VALIDATION, check=CHECK_NAME, status=report.status, reasons=problems)
-    emit_event(EventType.STATE, degraded=degraded)
+    emit_event(EventType.VALIDATION, check=NODE_NAME, status=report.status, reasons=problems)
+    emit_event(
+        EventType.STATE, degraded=degraded, response_retries=state.get("response_retries", 0)
+    )
     emit_node_finished(NODE_NAME)
 
     if not problems:
         return _finish_turn(state, report, degraded)
 
     retries_used = state.get("response_retries", 0)
-    if retries_used >= MAX_RESPONSE_RETRIES:
+    if retries_used >= limits.max_response_retries:
         logger.warning("answer_replaced_after_retries", retries=retries_used)
-        return _replace_with_excerpts(state, report, degraded)
+        return _replace_with_excerpts(state, problems, degraded)
     return {
         "validation_report": report,
         "validation_feedback": RETRY_FEEDBACK_TEMPLATE.format(problems=" ".join(problems)),
@@ -211,17 +211,12 @@ async def validator(state: AgentState, runtime: Runtime[AgentDependencies]) -> d
 
 def choose_after_validation(
     state: AgentState,
-) -> Literal["response_agent", "supervisor", "finish"]:
+) -> Literal["response_agent", "supervisor", "memory_writer"]:
     """Route on the report. Both loops are bounded by counters, and never by a model."""
     report = state["validation_report"]
     assert report is not None
     if report.status == "insufficient_evidence":
         return "supervisor"
-    if report.status == "fail" and state.get("validation_feedback") and not _was_replaced(state):
+    if report.status == "fail":
         return "response_agent"
-    return "finish"
-
-
-def _was_replaced(state: AgentState) -> bool:
-    """Return whether the answer was swapped for excerpts, which ends the turn."""
-    return DEGRADED_ANSWER_REPLACED in state.get("degraded", [])
+    return "memory_writer"

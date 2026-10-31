@@ -41,4 +41,4 @@ def clean_final_answer(answer: str) -> str:
 
 def find_brand_problem(answer: str) -> str | None:
     """Return the brand rule an answer breaks, or None. The LLM judge covers subtler cases."""
-    return find_matching_category(answer, get_security_policies().brand)
+    return find_matching_category(answer, get_security_policies().brand_patterns)

@@ -25,7 +25,7 @@ logger = structlog.get_logger()
 
 NODE_NAME = "input_guard"
 JUDGE_ROUTE = "fast"
-CHECK_NAME = "input_guard"
+DEFAULT_ATTACK_CATEGORY = "attack"
 
 DEGRADED_JUDGE_UNAVAILABLE = "guard_judge_unavailable_read_tools_only"
 DEGRADED_MODEL_FALLBACK = "input_guard_used_fallback_model"
@@ -40,7 +40,8 @@ async def _ask_judge(message: str, dependencies: AgentDependencies) -> tuple[str
     ]
     judge_result = await dependencies.llm.generate_structured(JUDGE_ROUTE, messages, InputJudgement)
     judgement = judge_result.value
-    category = (judgement.category or "attack") if judgement.is_attack else None
+    # A judge can flag an attack without naming a kind, and that must still count as blocked.
+    category = (judgement.category or DEFAULT_ATTACK_CATEGORY) if judgement.is_attack else None
     return category, judge_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK)
 
 
@@ -49,7 +50,8 @@ async def input_guard(state: AgentState, runtime: Runtime[AgentDependencies]) ->
     emit_node_started(NODE_NAME)
     message = latest_user_text(state)
 
-    # Step 1: known attacks need no model.
+    # Step 1: rule 5 starts here. This is the main gate against direct prompt injection, and
+    # known attacks need no model.
     attack_category = find_input_attack(message)
     degraded: list[str] = []
     read_only_tools = False
@@ -68,7 +70,7 @@ async def input_guard(state: AgentState, runtime: Runtime[AgentDependencies]) ->
         logger.warning("input_blocked", category=attack_category)
     emit_event(
         EventType.VALIDATION,
-        check=CHECK_NAME,
+        check=NODE_NAME,
         status="blocked" if blocked else "pass",
         reasons=[attack_category] if attack_category else [],
     )

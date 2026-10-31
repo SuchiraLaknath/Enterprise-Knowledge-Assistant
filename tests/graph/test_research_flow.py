@@ -113,6 +113,7 @@ async def test_an_analyst_question_runs_the_whole_research_flow_in_order(graph):
         "supervisor",
         "response_agent",
         "validator",
+        "memory_writer",
     ]
     assert state["research_report"].documents_analysed == 4
     assert len(calls_for_schema(llm, BatchAnalysis)) == 2

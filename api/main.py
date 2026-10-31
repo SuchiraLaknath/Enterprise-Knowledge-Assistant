@@ -21,7 +21,8 @@ from psycopg_pool import AsyncConnectionPool
 from agent.dependencies import AgentDependencies
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import LlmGateway
-from api.checkpoint_store import PostgresCheckpointStore
+from agent.memory_store import PostgresLongTermMemory
+from api.checkpoint_store import PostgresAvailabilityCheck
 from api.ratelimit import build_rate_limiter
 from api.routes import auth, chat
 from api.services import ApplicationServices
@@ -119,10 +120,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await connection_pool.open()
     checkpointer = AsyncPostgresSaver(connection_pool, serde=create_checkpoint_serializer())
     audit_log = PostgresAuditLog(connection_pool)
+    long_term_memory = PostgresLongTermMemory(connection_pool)
     # Tables are created on first use, so that the API can start while Postgres is down.
-    checkpoint_store = PostgresCheckpointStore(
+    checkpoint_availability = PostgresAvailabilityCheck(
         connection_pool,
-        [checkpointer.setup, audit_log.setup],
+        [checkpointer.setup, audit_log.setup, long_term_memory.setup],
         limits.api.postgres_timeout_s,
         settings.enabled_faults,
     )
@@ -149,15 +151,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.services = ApplicationServices(
             agent_graph=build_agent_graph(checkpointer),
             in_memory_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
-            checkpoint_store=checkpoint_store,
+            checkpoint_availability=checkpoint_availability,
             agent_dependencies=AgentDependencies(
                 llm=llm_gateway,
                 document_search=document_search,
                 document_catalog=DocumentCatalog.from_file(DOCUMENT_CATALOG_PATH),
                 history_message_count=limits.conversation.history_message_count,
+                conversation_limits=limits.conversation,
+                long_term_memory=long_term_memory,
                 research_limits=limits.research,
                 sandbox_limits=limits.sandbox,
                 tool_limits=limits.tools,
+                validation_limits=limits.validation,
                 tool_registry=build_tool_registry(
                     limits.tools, get_role_access().role_ranking, settings.enabled_faults
                 ),

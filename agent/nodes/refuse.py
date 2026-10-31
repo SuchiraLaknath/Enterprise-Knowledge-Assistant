@@ -19,7 +19,10 @@ REFUSAL_MESSAGE = (
 
 
 async def refuse(state: AgentState) -> dict[str, Any]:
-    """End the turn with the fixed refusal."""
+    """End the turn with the fixed refusal.
+
+    `input_guard` has already reported why, and the chat route sends this as the `final` event.
+    """
     emit_node_started(NODE_NAME)
     emit_node_finished(NODE_NAME)
     return {

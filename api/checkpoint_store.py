@@ -22,7 +22,7 @@ HEALTH_QUERY = "SELECT 1"
 SetupStep = Callable[[], Awaitable[None]]
 
 
-class CheckpointStore(Protocol):
+class CheckpointAvailability(Protocol):
     """What the chat route needs to know, so that tests can run with no Postgres."""
 
     async def is_available(self) -> bool:
@@ -30,7 +30,7 @@ class CheckpointStore(Protocol):
         ...
 
 
-class PostgresCheckpointStore:
+class PostgresAvailabilityCheck:
     """Checks Postgres, and creates its tables the first time that it can."""
 
     def __init__(
@@ -46,20 +46,32 @@ class PostgresCheckpointStore:
         self._timeout_s = timeout_s
         self._enabled_faults = enabled_faults
         self._is_set_up = False
+        self._setup_lock = asyncio.Lock()
 
     async def is_available(self) -> bool:
-        """Run a quick query. The timeout matters, as this delays turns while Postgres is down."""
+        """Answer quickly, because this runs at the start of every turn."""
         if POSTGRES_FAULT in self._enabled_faults:
             return False
         try:
             async with asyncio.timeout(self._timeout_s):
-                async with self._connection_pool.connection() as connection:
-                    await connection.execute(HEALTH_QUERY)
-                if not self._is_set_up:
-                    for setup_step in self._setup_steps:
-                        await setup_step()
-                    self._is_set_up = True
+                await self._ping_postgres()
+                await self._ensure_tables_exist()
         except Exception as error:  # Any failure means using the fallback for this turn.
             logger.warning("postgres_unavailable", error=type(error).__name__)
             return False
         return True
+
+    async def _ping_postgres(self) -> None:
+        """Run the smallest possible query, which fails if Postgres cannot answer."""
+        async with self._connection_pool.connection() as connection:
+            await connection.execute(HEALTH_QUERY)
+
+    async def _ensure_tables_exist(self) -> None:
+        """Create the tables once. This waits until here, as Postgres may be down at startup."""
+        # The lock stops two turns that arrive together from both running the setup.
+        async with self._setup_lock:
+            if self._is_set_up:
+                return
+            for setup_step in self._setup_steps:
+                await setup_step()
+            self._is_set_up = True

@@ -1,6 +1,6 @@
 import pytest
 
-from api.checkpoint_store import PostgresCheckpointStore
+from api.checkpoint_store import PostgresAvailabilityCheck
 
 
 class FakeConnection:
@@ -35,7 +35,7 @@ async def test_an_available_database_sets_up_once():
     async def record_setup():
         setups.append(1)
 
-    store = PostgresCheckpointStore(FakePool(), [record_setup], timeout_s=1.0)
+    store = PostgresAvailabilityCheck(FakePool(), [record_setup], timeout_s=1.0)
 
     assert await store.is_available()
     assert await store.is_available()
@@ -45,7 +45,7 @@ async def test_an_available_database_sets_up_once():
 @pytest.mark.faults
 async def test_a_failing_database_is_reported_and_recovers_by_itself():
     pool = FakePool(fails=True)
-    store = PostgresCheckpointStore(pool, [], timeout_s=1.0)
+    store = PostgresAvailabilityCheck(pool, [], timeout_s=1.0)
 
     assert not await store.is_available()
 
@@ -56,7 +56,7 @@ async def test_a_failing_database_is_reported_and_recovers_by_itself():
 
 @pytest.mark.faults
 async def test_the_postgres_fault_switch_uses_the_fallback():
-    store = PostgresCheckpointStore(FakePool(), [], timeout_s=1.0, enabled_faults=("postgres",))
+    store = PostgresAvailabilityCheck(FakePool(), [], timeout_s=1.0, enabled_faults=("postgres",))
 
     assert not await store.is_available()
 
@@ -70,7 +70,7 @@ async def test_tables_are_created_after_a_late_start():
         setups.append(1)
 
     pool = FakePool(fails=True)
-    store = PostgresCheckpointStore(pool, [record_setup], timeout_s=1.0)
+    store = PostgresAvailabilityCheck(pool, [record_setup], timeout_s=1.0)
     await store.is_available()
     pool.fails = False
 

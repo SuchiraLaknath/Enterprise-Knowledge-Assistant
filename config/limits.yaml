@@ -62,6 +62,17 @@ llm:
 conversation:
   # Recent messages sent to the model each turn. Older turns move to the summary in step 10.
   history_message_count: 10
+  # Messages kept before older ones move into the rolling summary. Above the history count, so
+  # that summaries run only now and then rather than on every turn.
+  summarize_after_messages: 16
+  # Long-term memories read at the start of a turn.
+  max_memories_read: 10
+  # Facts one turn may store, which limits what a single message can put into memory.
+  max_facts_per_turn: 3
+  # Longest fact stored. A real fact about a person is short, and a long one is suspect.
+  max_fact_characters: 200
+  # Seconds allowed for a memory read or write, so that memory can never hold up a turn.
+  memory_timeout_s: 2.0
 
 api:
   # Longest message accepted, which limits cost and the room for prompt injection.
@@ -116,6 +127,12 @@ tools:
   max_calls_per_turn: 6
   # Longest tool result kept, so that one result cannot flood the answer's prompt.
   max_result_characters: 4000
+
+validation:
+  # Times a rejected answer may be rewritten, before cited excerpts replace it.
+  max_response_retries: 2
+  # Times the search may run again without the plan's narrowing, when it found nothing.
+  max_evidence_retries: 1
 
 # Token buckets, per user. `capacity` is the largest burst, and `refill_per_minute` the steady
 # rate. Analysts and admins get more, because their research turns are the reason to have them.

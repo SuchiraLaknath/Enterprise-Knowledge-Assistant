@@ -14,6 +14,7 @@ from pydantic import Field
 
 from security.sandbox import run_sandboxed
 from tools.models import ToolArguments, ToolContext, ToolResult
+from tools.tracing import hide_tool_inputs
 
 TOOL_NAME = "python_analysis"
 # The variable that the code must set. Everything else it creates is discarded.
@@ -22,7 +23,10 @@ NO_RESULT_MESSAGE = "The code must store its answer in a variable named result."
 
 
 class PythonAnalysisArguments(ToolArguments):
-    """The code to run, which the sandbox checks before anything executes."""
+    """The code to run, which the sandbox checks before anything executes.
+
+    The description lists the syntax for the model, and must match `security/sandbox.py`.
+    """
 
     code: str = Field(
         min_length=1,
@@ -52,7 +56,7 @@ def percentage(part: float, whole: float) -> float:
     return round(part / whole * 100, 2) if whole else 0.0
 
 
-@traceable(name=TOOL_NAME, run_type="tool", process_inputs=lambda inputs: {})
+@traceable(name=TOOL_NAME, run_type="tool", process_inputs=hide_tool_inputs)
 async def run_python_analysis(
     arguments: PythonAnalysisArguments, context: ToolContext
 ) -> ToolResult:

@@ -8,12 +8,9 @@ from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import AllModelsFailedError, ToolCallRequest
 from agent.nodes.input_guard import DEGRADED_JUDGE_UNAVAILABLE
 from agent.nodes.refuse import REFUSAL_MESSAGE
-from agent.nodes.validator import (
-    DEGRADED_ANSWER_REPLACED,
-    MAX_RESPONSE_RETRIES,
-    find_dead_citations,
-)
+from agent.nodes.validator import DEGRADED_ANSWER_REPLACED, find_dead_citations
 from agent.schemas import AnswerJudgement, InputJudgement
+from config.settings import get_limits
 from retrieval.models import SearchResult, UserContext
 from tests.fakes.fake_dependencies import make_agent_dependencies
 from tests.fakes.fake_llm import FakeLlm, make_plan
@@ -170,7 +167,9 @@ async def test_after_the_last_retry_excerpts_replace_the_answer():
 
     events, state = await run_turn(llm)
 
-    assert started_nodes(events).count("response_agent") == MAX_RESPONSE_RETRIES + 1
+    assert started_nodes(events).count("response_agent") == (
+        get_limits().validation.max_response_retries + 1
+    )
     assert DEGRADED_ANSWER_REPLACED in state["degraded"]
     assert "buy shares" not in state["final_answer"]
     assert [citation.chunk_id for citation in state["final_citations"]] == ["DOC#c0"]

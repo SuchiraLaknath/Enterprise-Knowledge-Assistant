@@ -114,9 +114,14 @@ class LlmLimits(BaseModel):
 
 
 class ConversationLimits(BaseModel):
-    """How much of a conversation is sent back to the model."""
+    """How much of a conversation is sent back to the model, and when older turns are condensed."""
 
     history_message_count: int = Field(gt=0)
+    summarize_after_messages: int = Field(gt=0)
+    max_memories_read: int = Field(gt=0)
+    max_facts_per_turn: int = Field(gt=0)
+    max_fact_characters: int = Field(gt=0)
+    memory_timeout_s: float = Field(gt=0)
 
 
 class ApiLimits(BaseModel):
@@ -148,6 +153,13 @@ class ResearchLimits(BaseModel):
     search_result_count: int = Field(gt=0)
     deadline_s: float = Field(gt=0)
     plan_regeneration_limit: int = Field(ge=0)
+
+
+class ValidationLimits(BaseModel):
+    """How many times the validator may send a turn back."""
+
+    max_response_retries: int = Field(ge=0)
+    max_evidence_retries: int = Field(ge=0)
 
 
 class RoleRateLimit(BaseModel):
@@ -182,6 +194,7 @@ class Limits(BaseModel):
     sandbox: SandboxLimits
     research: ResearchLimits
     tools: ToolLimits
+    validation: ValidationLimits
     rate_limits: dict[str, RoleRateLimit]
 
 

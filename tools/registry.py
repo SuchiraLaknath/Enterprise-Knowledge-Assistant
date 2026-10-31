@@ -21,6 +21,9 @@ from tools.admin_tools import VIEW_AUDIT_LOG_TOOL, ViewAuditLogArguments, view_a
 from tools.knowledge_search import TOOL_NAME as KNOWLEDGE_SEARCH_TOOL
 from tools.knowledge_search import KnowledgeSearchArguments, search_knowledge
 from tools.mcp_tools import (
+    EMPLOYEE_DIRECTORY_TOOL,
+    INCIDENT_RECORDS_TOOL,
+    SERVICE_CATALOG_TOOL,
     EmployeeDirectoryArguments,
     IncidentRecordsArguments,
     ServiceCatalogArguments,
@@ -168,12 +171,15 @@ class ToolRegistry:
         self, definition: ToolDefinition, arguments: BaseModel, context: ToolContext
     ) -> ToolResult:
         """Run the handler within its timeout. Failures name no details, which may be sensitive."""
-        assert definition.handler is not None
+        handler = definition.handler
+        # `execute` has already refused entries with no handler, and this keeps that visible.
+        if handler is None:
+            return ToolResult(tool_name=definition.name, status="error", message=FAILED_MESSAGE)
         try:
             if TOOL_TIMEOUT_FAULT in self._enabled_faults:
                 raise TimeoutError("Simulated tool timeout from FAULTS")
             async with asyncio.timeout(definition.timeout_s):
-                return await definition.handler(arguments, context)
+                return await handler(arguments, context)
         except TimeoutError:
             logger.warning("tool_timed_out", tool=definition.name)
             return ToolResult(tool_name=definition.name, status="timeout", message=TIMEOUT_MESSAGE)
@@ -218,7 +224,7 @@ def build_tool_registry(
             handler=run_python_analysis,
         ),
         ToolDefinition(
-            name="mcp.employee_directory",
+            name=EMPLOYEE_DIRECTORY_TOOL,
             description="Look up employees by name or department.",
             args_schema=EmployeeDirectoryArguments,
             min_role="analyst",
@@ -227,7 +233,7 @@ def build_tool_registry(
             handler=look_up_employees,
         ),
         ToolDefinition(
-            name="mcp.service_catalog",
+            name=SERVICE_CATALOG_TOOL,
             description="Look up services, their owners and their tier.",
             args_schema=ServiceCatalogArguments,
             min_role="analyst",
@@ -236,7 +242,7 @@ def build_tool_registry(
             handler=look_up_services,
         ),
         ToolDefinition(
-            name="mcp.incident_records",
+            name=INCIDENT_RECORDS_TOOL,
             description="Look up live incident records by service or status.",
             args_schema=IncidentRecordsArguments,
             min_role="analyst",

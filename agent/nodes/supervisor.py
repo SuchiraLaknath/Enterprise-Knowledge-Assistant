@@ -65,7 +65,8 @@ async def _create_plan(
 ) -> tuple[Plan, list[str]]:
     """Ask the LLM for a plan, and return it with any degradation that occurred."""
     conversation: list[BaseMessage] = state["messages"][-dependencies.history_message_count :]
-    planning_messages = [SystemMessage(SUPERVISOR_SYSTEM_PROMPT), *conversation]
+    system_prompt = SUPERVISOR_SYSTEM_PROMPT + state.get("memory_context", "")
+    planning_messages = [SystemMessage(system_prompt), *conversation]
     try:
         planning_result = await dependencies.llm.generate_structured(
             PLANNING_ROUTE, planning_messages, Plan

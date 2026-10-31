@@ -141,10 +141,22 @@ class AnswerJudgement(BaseModel):
     problem: str = Field(description="One sentence on any failure, or an empty string.")
 
 
+class ExtractedFacts(BaseModel):
+    """Lasting facts an employee stated about themselves."""
+
+    facts: list[str] = Field(description="Short facts in the third person. Usually empty.")
+
+
+class ConversationSummary(BaseModel):
+    """A rolling summary of the older part of a conversation."""
+
+    summary: str = Field(description="A few sentences on what was asked and decided.")
+
+
 class ValidationReport(BaseModel):
     """What the validator decided, and why."""
 
-    status: Literal["pass", "fail", "insufficient_evidence"]
+    status: Literal["pass", "fail", "insufficient_evidence", "replaced_with_excerpts"]
     reasons: list[str]
 
 

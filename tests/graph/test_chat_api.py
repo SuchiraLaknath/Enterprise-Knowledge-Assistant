@@ -40,7 +40,7 @@ def search():
     return RecordingSearch()
 
 
-class FakeCheckpointStore:
+class FakeCheckpointAvailability:
     def __init__(self):
         self.available = True
 
@@ -63,7 +63,7 @@ async def client(search, llm, monkeypatch):
     app.state.services = ApplicationServices(
         agent_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
         in_memory_graph=build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer())),
-        checkpoint_store=FakeCheckpointStore(),
+        checkpoint_availability=FakeCheckpointAvailability(),
         agent_dependencies=make_agent_dependencies(llm, search),
         jwt_secret=JWT_SECRET,
         role_access=get_role_access(),
@@ -307,7 +307,7 @@ async def test_too_many_requests_get_a_429_before_the_stream_opens(client):
 
 @pytest.mark.faults
 async def test_a_postgres_outage_still_answers_and_says_so(client, search):
-    client._transport.app.state.services.checkpoint_store.available = False
+    client._transport.app.state.services.checkpoint_availability.available = False
     headers = await sign_in(client)
 
     _, events = await post_chat(client, headers)

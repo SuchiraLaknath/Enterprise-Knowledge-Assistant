@@ -10,4 +10,4 @@ from security.policies import find_matching_category, get_security_policies
 
 def find_input_attack(message: str) -> str | None:
     """Return the attack category of a message, or None if no pattern matches."""
-    return find_matching_category(message, get_security_policies().input)
+    return find_matching_category(message, get_security_policies().input_patterns)

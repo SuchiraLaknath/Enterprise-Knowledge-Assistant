@@ -91,7 +91,10 @@ class LocalTokenBucketLimiter:
         self._buckets: dict[str, tuple[float, float]] = {}
 
     async def check(self, user: UserContext) -> RateDecision:
-        """Refill the user's bucket for the time passed, and spend one token."""
+        """Refill the user's bucket for the time passed, and spend one token.
+
+        This is the same arithmetic as `TOKEN_BUCKET_SCRIPT`, so the two must change together.
+        """
         limit = self._limits_by_role[user.role]
         refill_per_second = limit.refill_per_minute / SECONDS_PER_MINUTE
         now = time.monotonic()
@@ -141,7 +144,9 @@ class RedisTokenBucketLimiter:
             logger.warning("rate_limit_redis_failed", error=type(error).__name__)
             decision = await self._fallback.check(user)
             return RateDecision(
-                decision.allowed, decision.retry_after_s, [DEGRADED_LOCAL_RATE_LIMIT]
+                allowed=decision.allowed,
+                retry_after_s=decision.retry_after_s,
+                degraded=[DEGRADED_LOCAL_RATE_LIMIT],
             )
 
         if allowed:

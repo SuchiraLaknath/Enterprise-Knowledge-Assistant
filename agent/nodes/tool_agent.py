@@ -24,6 +24,7 @@ from api.events import EventType, emit_event, emit_node_finished, emit_node_star
 from retrieval.models import RetrievedChunk
 from tools.knowledge_search import TOOL_NAME as KNOWLEDGE_SEARCH_TOOL
 from tools.models import ToolContext, ToolResult
+from tools.registry import ToolDefinition
 
 NODE_NAME = "tool_agent"
 # Choosing a tool is a small decision, so it uses the cheaper route.
@@ -110,32 +111,36 @@ async def _run_tool_call(
     return tool_result
 
 
-async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
-    """Offer the tools this role may use, and run what the model asks for, in bounded rounds."""
-    emit_node_started(NODE_NAME)
-    dependencies = runtime.context
-    limits = dependencies.tool_limits
-
-    # Step 1: rule 2's first check, the model is only ever offered what this role may use.
+def _select_offered_tools(
+    state: AgentState, dependencies: AgentDependencies
+) -> list[ToolDefinition]:
+    """Return what the model may be offered. Rule 2's first check: only what this role may use."""
     offered_tools = dependencies.tool_registry.tools_for_model(state["user"].role)
 
     # Documents were already searched, and offering search again only invites repeat calls.
     plan = state["plan"]
     if plan is not None and plan.needs_documents:
         offered_tools = [tool for tool in offered_tools if tool.name != KNOWLEDGE_SEARCH_TOOL]
-    # With the guard's judge down, only deterministic checks stand, so nothing may be changed.
+
+    # `input_guard` sets this when its judge is down. With only deterministic checks standing,
+    # nothing may be changed.
     if state.get("read_only_tools", False):
         offered_tools = [tool for tool in offered_tools if tool.risk == "read"]
-    tool_schemas = [definition.to_model_schema() for definition in offered_tools]
+    return offered_tools
 
+
+async def _run_tool_rounds(
+    state: AgentState, dependencies: AgentDependencies, tool_schemas: list[dict[str, Any]]
+) -> tuple[list[ToolResult], list[str]]:
+    """Let the model call tools and see the results, bounded by rounds and by total calls."""
+    limits = dependencies.tool_limits
     tool_results: list[ToolResult] = []
     degraded: list[str] = []
     calls_made = 0
-    rounds_allowed = limits.max_rounds if offered_tools else 0
-    for _ in range(rounds_allowed):
+    for _ in range(limits.max_rounds):
         messages = _build_messages(state, tool_results, state.get("evidence", []))
 
-        # Step 2: ask which tools to run. With no model, the turn carries on without them.
+        # With no model, the turn carries on without tools.
         try:
             selection = await dependencies.llm.generate_tool_calls(
                 TOOL_ROUTE, messages, tool_schemas
@@ -147,7 +152,7 @@ async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
         if not selection.value:
             break
 
-        # Step 3: run them at once, up to the turn's limit. Extra requests are ignored.
+        # Calls run at once, up to the turn's limit. Extra requests are ignored.
         allowed_calls = selection.value[: limits.max_calls_per_turn - calls_made]
         calls_made += len(allowed_calls)
         context = _build_tool_context(state, dependencies, tool_results)
@@ -158,8 +163,22 @@ async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
         )
         if calls_made >= limits.max_calls_per_turn:
             break
+    return tool_results, degraded
 
-    # Step 4: one failed tool must not fail the turn, but the employee should know about it.
+
+async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
+    """Offer the tools this role may use, and run what the model asks for."""
+    emit_node_started(NODE_NAME)
+
+    # Step 1: choose what to offer, and skip the model if there is nothing.
+    offered_tools = _select_offered_tools(state, runtime.context)
+    tool_results: list[ToolResult] = []
+    degraded: list[str] = []
+    if offered_tools:
+        tool_schemas = [definition.to_model_schema() for definition in offered_tools]
+        tool_results, degraded = await _run_tool_rounds(state, runtime.context, tool_schemas)
+
+    # Step 2: one failed tool must not fail the turn, but the employee should know about it.
     if any(tool_result.status in FAILED_STATUSES for tool_result in tool_results):
         degraded.append(DEGRADED_TOOL_FAILED)
 
@@ -169,6 +188,7 @@ async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
     return {
         "tool_results": tool_results,
         "evidence": tool_evidence,
+        # The supervisor reads this, so that it does not route here a second time.
         "tools_finished": True,
         "degraded": degraded,
     }
