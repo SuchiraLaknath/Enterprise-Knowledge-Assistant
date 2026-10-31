@@ -46,11 +46,58 @@ def _describe_retrieval(event: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _describe_research_plan(event: dict[str, Any]) -> str:
+    """Show the generated plan in full, as it is the heart of the RLM flow."""
+    heading = f"  Research plan (attempt {event['attempt']}, from {event['source']}):"
+    code_lines = [f"    {line}" for line in event["code"].splitlines()]
+    return "\n".join([heading, *code_lines])
+
+
+def _describe_research_report(event: dict[str, Any]) -> str:
+    """Show the themes and how much of the collection was read."""
+    lines = [
+        f"  Research: {event['documents_analysed']} documents analysed, "
+        f"{event['chunks_read']} of {event['chunks_available']} chunks read",
+        f"  Depth reached: {event['depth_reached']}, sub-agents: {event['sub_agent_calls']}",
+    ]
+    for theme in event["themes"]:
+        lines.append(f"    {theme['document_count']} documents: {theme['name']}")
+    return "\n".join(lines)
+
+
+def _describe_research(event: dict[str, Any]) -> str:
+    """Show one step of a research run, which reports its stages as they happen."""
+    stage = event["stage"]
+    if stage == "plan_ready":
+        return _describe_research_plan(event)
+    if stage == "report_ready":
+        return _describe_research_report(event)
+    if stage == "explored":
+        return f"  Explored catalog: {event['document_count']} documents"
+    if stage == "searched":
+        return f"  Research search: {event['query']} ({event['result_count']} results)"
+    if stage == "sections_fetched":
+        keyword = event["section_keyword"] or "all sections"
+        return (
+            f"  Fetched sections ({keyword}): {event['section_count']} "
+            f"from {event['document_count']} documents"
+        )
+    if stage == "batches_planned":
+        return f"  Batches at depth {event['depth']}: sizes {event['batch_sizes']}"
+    if stage == "batch_finished":
+        return (
+            f"  Sub-agent at depth {event['depth']}: {event['finding_count']} findings "
+            f"from {event['batch_size']} chunks ({event['chunks_read']} chunks read so far)"
+        )
+    return f"  Research plan failed: {event['error']}"
+
+
 EVENT_DESCRIPTIONS = {
     "node": _describe_node,
     "state": _describe_state,
     "route": _describe_route,
     "retrieval": _describe_retrieval,
+    "research": _describe_research,
 }
 
 

@@ -68,3 +68,70 @@ def test_only_data_lines_are_read_from_the_stream():
     assert parse_sse_line('data: {"type": "node"}') == '{"type": "node"}'
     assert parse_sse_line(": ping - 2026-10-31") is None
     assert parse_sse_line("") is None
+
+
+def test_a_research_plan_is_shown_in_full():
+    description = describe_event(
+        {
+            "type": "research",
+            "stage": "plan_ready",
+            "source": "llm",
+            "attempt": 1,
+            "code": "documents = explore_documents()\ndelegate(question, [])",
+        }
+    )
+
+    assert "attempt 1, from llm" in description
+    assert "documents = explore_documents()" in description
+    assert "delegate(question, [])" in description
+
+
+def test_a_research_report_shows_depth_and_chunks_read_against_the_total():
+    description = describe_event(
+        {
+            "type": "research",
+            "stage": "report_ready",
+            "themes": [{"name": "Certificate expiry", "document_count": 8}],
+            "documents_analysed": 22,
+            "chunks_read": 24,
+            "chunks_available": 150,
+            "depth_reached": 2,
+            "sub_agent_calls": 9,
+        }
+    )
+
+    assert "22 documents analysed" in description
+    assert "24 of 150 chunks read" in description
+    assert "Depth reached: 2, sub-agents: 9" in description
+    assert "8 documents: Certificate expiry" in description
+
+
+def test_each_research_stage_has_a_description():
+    stages = [
+        {"stage": "explored", "document_count": 22},
+        {"stage": "searched", "query": "outage", "result_count": 5},
+        {
+            "stage": "sections_fetched",
+            "section_keyword": None,
+            "section_count": 22,
+            "document_count": 22,
+        },
+        {"stage": "batches_planned", "depth": 1, "batch_sizes": [4, 4]},
+        {
+            "stage": "batch_finished",
+            "depth": 2,
+            "finding_count": 3,
+            "batch_size": 4,
+            "chunks_read": 8,
+        },
+        {"stage": "plan_failed", "error": "SandboxViolation: Import is not allowed."},
+    ]
+
+    descriptions = [describe_event({"type": "research", **stage}) for stage in stages]
+
+    assert "22 documents" in descriptions[0]
+    assert "outage" in descriptions[1]
+    assert "all sections" in descriptions[2]
+    assert "[4, 4]" in descriptions[3]
+    assert "depth 2" in descriptions[4]
+    assert "Import is not allowed" in descriptions[5]
