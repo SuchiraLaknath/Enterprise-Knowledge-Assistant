@@ -131,7 +131,7 @@ Work moves down a level when a batch is too large for one sub-agent, or when a s
 
 Four choices keep the result honest:
 
-- **The planner never sees document text,** only counts of what the employee may read, so a poisoned document cannot shape the code.
+- **The planner sees no retrieved text,** only counts of what the employee may read, so a document read in this run cannot shape the code. A search query can still carry words from an earlier answer, so it is escaped and marked as data.
 - **Citations are checked.** A sub-agent cites by document tag, and code maps those numbers to the chunks it was really shown.
 - **Code does the counting.** The model decides which findings belong together, and code counts the documents, so a figure in an answer cannot be invented.
 - **The answer uses findings, not chunks,** so the final prompt stays small however many documents were read.
@@ -182,7 +182,7 @@ Each failure is contained where it occurs, recorded in `state["degraded"]`, and 
 
 ## Observability
 
-Every conversation, agent transition, tool call and retrieval operation is traced in LangSmith, with `user_id`, `role` and `thread_id` as run metadata. The same steps stream to the activity panel as typed events, and a `trace` event follows each answer with a link to its trace. Traces show the structure of a turn and which chunks were used, but document text and research findings are redacted before they leave the process. Logs are structured JSON and never contain tokens, JWTs or document text.
+Every conversation, agent transition, tool call and retrieval operation is traced in LangSmith, with `user_id`, `role` and `thread_id` as run metadata. The same steps stream to the activity panel as typed events, and a `trace` event follows each answer with a link to its trace. Traces show the structure of a turn and which chunks were used, but document text, research findings and error messages are redacted before they leave the process. Logs are structured JSON and never contain tokens, JWTs or document text.
 
 ## Decisions
 

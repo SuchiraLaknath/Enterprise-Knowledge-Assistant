@@ -4,9 +4,13 @@ The LLM writes the plan. If its code fails, it gets the configured number of ret
 error, and after that a fixed template plan runs, so a poor model reply cannot stop an
 investigation.
 
-The planner sees the question and counts of what this employee may read, never document text,
-so a poisoned document cannot influence the code.
+The planner sees the question and counts of what this employee may read, and no retrieved
+text, so a document read in this run cannot influence the code. The search query can still
+carry words from an earlier answer in the conversation, and an error can quote a title, so
+those values are escaped and marked as data (rule 5).
 """
+
+from html import escape
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
@@ -73,8 +77,8 @@ def _build_planner_messages(
     # Rule 2: the counts come from the filtered catalog, so they reveal no hidden document.
     catalog_summary = dependencies.document_catalog.summarize(user)
     request_text = PLANNER_REQUEST_TEMPLATE.format(
-        question=question,
-        search_query=plan.search_query,
+        question=escape(question, quote=False),
+        search_query=escape(plan.search_query, quote=False),
         departments=plan.departments,
         document_types=plan.document_types,
         recent_days=plan.recent_days,
@@ -82,7 +86,7 @@ def _build_planner_messages(
     )
     if plan_error:
         request_text += PLANNER_RETRY_TEMPLATE.format(
-            plan_error=plan_error, previous_code=previous_code
+            plan_error=escape(plan_error, quote=False), previous_code=previous_code
         )
     return [SystemMessage(system_prompt), HumanMessage(request_text)]
 
