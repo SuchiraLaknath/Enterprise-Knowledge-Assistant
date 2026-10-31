@@ -27,7 +27,8 @@ class FakeDocumentSearch:
     async def search(self, query_text, user, document_filters=None, namespaces=None, **options):
         self.received_users.append(user)
         self.received_queries.append(query_text)
-        return self.results.pop(0)
+        # The last result repeats, because the validator can search once more.
+        return self.results.pop(0) if len(self.results) > 1 else self.results[0]
 
 
 def make_dependencies(llm=None, search=None):
@@ -66,10 +67,12 @@ async def test_a_document_question_runs_plan_retrieve_answer_in_order(graph):
 
     assert started_nodes(events) == [
         "load_context",
+        "input_guard",
         "supervisor",
         "retrieval_agent",
         "supervisor",
         "response_agent",
+        "validator",
     ]
     assert state["final_answer"] == "Payments failed because a certificate expired [1]."
     assert [citation.chunk_id for citation in state["final_citations"]] == ["DOC#c0"]
@@ -229,8 +232,8 @@ async def test_old_citation_markers_are_removed_from_the_prompt(graph):
 
 async def test_an_empty_search_never_claims_that_documents_were_read(graph):
     # A false "I have read the documents" made the model apologise for a reply nobody saw.
-    llm = FakeLlm()
-    search = FakeDocumentSearch([SearchResult(chunks=[])])
+    llm = FakeLlm(answers=["I could not find any documents on this."])
+    search = FakeDocumentSearch([SearchResult(chunks=[]), SearchResult(chunks=[])])
 
     await run_turn(graph, make_dependencies(llm, search))
 

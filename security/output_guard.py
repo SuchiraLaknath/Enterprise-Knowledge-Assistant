@@ -4,10 +4,13 @@ A rendered image makes the browser fetch its URL with no click, and a link needs
 either could send data to an attacker. The poisoned runbook in the corpus tries exactly this.
 Answers never need a web address, because sources are listed separately, so every address is
 removed. That one rule also defeats the many markdown spellings of an image or link, which a
-pattern for each spelling would miss. Build step 8 adds brand and validity checks here.
+pattern for each spelling would miss. The validator also uses `find_brand_problem` here, and
+this module holds both so that everything checking a finished answer is in one place.
 """
 
 import re
+
+from security.policies import find_matching_category, get_security_policies
 
 # A web address, including the protocol-relative and www forms that browsers also follow.
 WEB_ADDRESS_PATTERN = re.compile(r"(?:https?:)?//[^\s)>\]]+|\bwww\.[^\s)>\]]+", re.IGNORECASE)
@@ -34,3 +37,8 @@ def clean_final_answer(answer: str) -> str:
 
     # Step 3: escape any remaining image syntax, so that no unusual form can render as an image.
     return answer_with_plain_links.replace("![", "!\\[")
+
+
+def find_brand_problem(answer: str) -> str | None:
+    """Return the brand rule an answer breaks, or None. The LLM judge covers subtler cases."""
+    return find_matching_category(answer, get_security_policies().brand)

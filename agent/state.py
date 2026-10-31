@@ -11,7 +11,7 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
-from agent.schemas import Citation, Finding, Plan, ResearchReport
+from agent.schemas import Citation, Finding, Plan, ResearchReport, ValidationReport
 from retrieval.models import RetrievedChunk, UserContext
 from tools.models import ToolResult
 
@@ -21,6 +21,8 @@ class AgentState(TypedDict, total=False):
 
     # Set by the API from the verified JWT. Rule 1: no node may write this field.
     user: UserContext
+    # Set by the API, for a fallback used before the graph started.
+    request_degraded: list[str]
 
     # The conversation. Only finished answers are added, never a streaming draft (rule 9).
     messages: Annotated[list[BaseMessage], add_messages]
@@ -33,11 +35,19 @@ class AgentState(TypedDict, total=False):
     research_report: ResearchReport | None
     tools_finished: bool
     tool_results: Annotated[list[ToolResult], operator.add]
+    # Set when the input guard's judge is down, so that only read tools may run.
+    read_only_tools: bool
+    input_blocked: bool
+    validation_report: ValidationReport | None
+    # What a retry must fix. Empty on the first attempt.
+    validation_feedback: str
+    # Stored in the conversation instead of the answer, for excerpts that are raw document text.
+    conversation_note: str | None
     # A fixed sentence added to the answer, such as why deep research was not used.
     turn_notice: str | None
     evidence: Annotated[list[RetrievedChunk], operator.add]
     degraded: Annotated[list[str], operator.add]
-    # Reserved for the validator loop in build step 8.
+    # The validator's two loops, which are bounded by these counters.
     response_retries: int
     evidence_retries: int
     # The answer shown this turn. It can differ from the message stored in the conversation.

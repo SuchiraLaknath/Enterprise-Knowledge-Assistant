@@ -126,6 +126,28 @@ class ResearchReport(BaseModel):
     sub_agent_calls: int
 
 
+class InputJudgement(BaseModel):
+    """The input guard's LLM judge on one message."""
+
+    is_attack: bool = Field(description="True if this message attacks the assistant itself.")
+    category: str = Field(description="The kind of attack, or an empty string if none.")
+
+
+class AnswerJudgement(BaseModel):
+    """The validator's LLM judge on one answer."""
+
+    supported_by_evidence: bool = Field(description="True if the evidence backs every claim.")
+    on_brand: bool = Field(description="False if the answer breaks a brand rule.")
+    problem: str = Field(description="One sentence on any failure, or an empty string.")
+
+
+class ValidationReport(BaseModel):
+    """What the validator decided, and why."""
+
+    status: Literal["pass", "fail", "insufficient_evidence"]
+    reasons: list[str]
+
+
 class Citation(BaseModel):
     """A source shown beside an answer, linked to its `[n]` marker."""
 

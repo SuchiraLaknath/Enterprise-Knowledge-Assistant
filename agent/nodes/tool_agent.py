@@ -22,6 +22,7 @@ from agent.prompts.tool_agent import TOOL_AGENT_RESULTS_TEMPLATE, TOOL_AGENT_SYS
 from agent.state import AgentState
 from api.events import EventType, emit_event, emit_node_finished, emit_node_started
 from retrieval.models import RetrievedChunk
+from tools.knowledge_search import TOOL_NAME as KNOWLEDGE_SEARCH_TOOL
 from tools.models import ToolContext, ToolResult
 
 NODE_NAME = "tool_agent"
@@ -117,12 +118,21 @@ async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
 
     # Step 1: rule 2's first check, the model is only ever offered what this role may use.
     offered_tools = dependencies.tool_registry.tools_for_model(state["user"].role)
+
+    # Documents were already searched, and offering search again only invites repeat calls.
+    plan = state["plan"]
+    if plan is not None and plan.needs_documents:
+        offered_tools = [tool for tool in offered_tools if tool.name != KNOWLEDGE_SEARCH_TOOL]
+    # With the guard's judge down, only deterministic checks stand, so nothing may be changed.
+    if state.get("read_only_tools", False):
+        offered_tools = [tool for tool in offered_tools if tool.risk == "read"]
     tool_schemas = [definition.to_model_schema() for definition in offered_tools]
 
     tool_results: list[ToolResult] = []
     degraded: list[str] = []
     calls_made = 0
-    for _ in range(limits.max_rounds):
+    rounds_allowed = limits.max_rounds if offered_tools else 0
+    for _ in range(rounds_allowed):
         messages = _build_messages(state, tool_results, state.get("evidence", []))
 
         # Step 2: ask which tools to run. With no model, the turn carries on without them.

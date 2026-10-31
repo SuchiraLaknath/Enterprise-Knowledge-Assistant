@@ -13,6 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from api.auth import TOKEN_ALGORITHM
 from api.main import create_app
+from api.ratelimit import build_rate_limiter
 from api.routes import chat as chat_route
 from api.routes.chat import build_checkpoint_thread_id
 from api.services import ApplicationServices
@@ -58,6 +59,7 @@ async def client(search, llm, monkeypatch):
         role_access=get_role_access(),
         api_limits=get_limits().api,
         langsmith_project="test",
+        rate_limiter=build_rate_limiter("", get_limits().rate_limits),
     )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
@@ -276,3 +278,18 @@ async def test_health_needs_no_login(client):
     response = await client.get("/health")
 
     assert response.json() == {"status": "ok"}
+
+
+async def test_too_many_requests_get_a_429_before_the_stream_opens(client):
+    # Attack: a flood from one user. The refusal must come before any LLM call.
+    headers = await sign_in(client)
+    limit = get_limits().rate_limits["viewer"].capacity
+
+    for turn in range(limit):
+        await post_chat(client, headers, thread_id=f"thread-{turn}")
+    response = await client.post(
+        "/chat", json={"message": "One more", "thread_id": "extra"}, headers=headers
+    )
+
+    assert response.status_code == 429
+    assert int(response.headers["retry-after"]) > 0

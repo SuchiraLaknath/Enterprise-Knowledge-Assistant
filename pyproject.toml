@@ -23,6 +23,7 @@ dependencies = [
     "pyjwt>=2.15.1",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0",
+    "redis>=5",
     "sse-starlette>=3.6.0",
     "streamlit>=1.66.1",
     "structlog>=24.4",

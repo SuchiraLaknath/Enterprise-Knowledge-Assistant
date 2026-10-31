@@ -100,17 +100,12 @@ def remove_citation_markers(message: BaseMessage) -> BaseMessage:
     return message
 
 
-def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -> list[BaseMessage]:
-    """Assemble the system prompt, the evidence and the recent conversation."""
-    plan = state.get("plan")
+def build_evidence_text(state: AgentState) -> tuple[str, str]:
+    """Return everything this turn found as prompt text, with the fixed reply that labels it.
+
+    The validator's judge reads the same text, so that it checks against what the answer saw.
+    """
     evidence = state.get("evidence", [])
-    recent_messages = state["messages"][-dependencies.history_message_count :]
-    conversation = [remove_citation_markers(message) for message in recent_messages]
-
-    tool_results = state.get("tool_results", [])
-    if plan is not None and not plan.needs_documents and not tool_results:
-        return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT), *conversation]
-
     research_report = state.get("research_report")
     if research_report is not None:
         # Findings replace chunk text, so a large investigation never reloads whole documents.
@@ -128,18 +123,38 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
         evidence_text = NO_EVIDENCE_MESSAGE
         acknowledgement = NO_EVIDENCE_ACKNOWLEDGEMENT
 
+    tool_results = state.get("tool_results", [])
     if tool_results:
         tool_text = TOOL_RESULTS_TEMPLATE.format(tool_results=format_tool_results(tool_results))
         evidence_text = f"{evidence_text}\n\n{tool_text}"
+    return evidence_text, acknowledgement
+
+
+def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -> list[BaseMessage]:
+    """Assemble the system prompt, the evidence and the recent conversation."""
+    plan = state.get("plan")
+    recent_messages = state["messages"][-dependencies.history_message_count :]
+    conversation = [remove_citation_markers(message) for message in recent_messages]
+
+    has_tool_results = bool(state.get("tool_results"))
+    if plan is not None and not plan.needs_documents and not has_tool_results:
+        return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT), *conversation]
 
     # Rule 5: the documents sit in a user turn, followed by a fixed reply that labels them as
     # data, so they never read as instructions. The employee's question comes last.
-    return [
+    evidence_text, acknowledgement = build_evidence_text(state)
+    answer_messages: list[BaseMessage] = [
         SystemMessage(RESPONSE_SYSTEM_PROMPT),
         HumanMessage(evidence_text),
         AIMessage(acknowledgement),
         *conversation,
     ]
+
+    # A retry is told what was wrong, and comes last so that it is the model's next instruction.
+    feedback = state.get("validation_feedback", "")
+    if feedback:
+        answer_messages.append(HumanMessage(feedback))
+    return answer_messages
 
 
 async def _stream_masked_answer(
@@ -174,6 +189,10 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
     evidence = state.get("evidence", [])
     degraded: list[str] = []
 
+    # Rule 9: a retry starts from nothing, so the rejected draft leaves the screen.
+    if state.get("validation_feedback") or state.get("evidence_retries", 0):
+        emit_event(EventType.TOKEN, reset=True)
+
     # Step 1: stream an answer from the first model that can finish one.
     answer_messages = _build_answer_messages(state, runtime.context)
     try:
@@ -202,11 +221,11 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
         # The draft gets it too, so that the final event can confirm the draft.
         emit_event(EventType.TOKEN, text=notice_text)
 
-    # Step 3: only now does the answer join the conversation (rule 9).
+    # Step 3: the answer stays out of the conversation until the validator passes it (rule 9).
     emit_event(EventType.STATE, citation_count=len(citations), degraded=degraded)
     emit_node_finished(NODE_NAME)
     return {
-        "messages": [AIMessage(conversation_note or final_answer)],
+        "conversation_note": conversation_note,
         "final_answer": final_answer,
         "final_citations": citations,
         "degraded": degraded,

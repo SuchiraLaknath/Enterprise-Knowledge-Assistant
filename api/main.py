@@ -19,6 +19,7 @@ from psycopg_pool import AsyncConnectionPool
 from agent.dependencies import AgentDependencies
 from agent.graph import build_agent_graph, create_checkpoint_serializer
 from agent.llm_gateway import LlmGateway
+from api.ratelimit import build_rate_limiter
 from api.routes import auth, chat
 from api.services import ApplicationServices
 from api.tracing import configure_redacted_tracing
@@ -155,6 +156,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             role_access=get_role_access(),
             api_limits=limits.api,
             langsmith_project=settings.langsmith_project,
+            rate_limiter=build_rate_limiter(
+                settings.redis_url, limits.rate_limits, settings.enabled_faults
+            ),
         )
         logger.info("api_started")
         yield

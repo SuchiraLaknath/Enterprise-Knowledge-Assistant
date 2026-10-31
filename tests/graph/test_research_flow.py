@@ -104,6 +104,7 @@ async def test_an_analyst_question_runs_the_whole_research_flow_in_order(graph):
 
     assert started_nodes(events) == [
         "load_context",
+        "input_guard",
         "supervisor",
         "research_agent",
         "research_planner",
@@ -111,6 +112,7 @@ async def test_an_analyst_question_runs_the_whole_research_flow_in_order(graph):
         "research_aggregator",
         "supervisor",
         "response_agent",
+        "validator",
     ]
     assert state["research_report"].documents_analysed == 4
     assert len(calls_for_schema(llm, BatchAnalysis)) == 2

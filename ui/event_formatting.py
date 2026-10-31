@@ -132,6 +132,12 @@ def _describe_tool(event: dict[str, Any]) -> str:
     return f"  Tool: {event['tool_name']}({event['arguments']}) -> {event['status']}"
 
 
+def _describe_validation(event: dict[str, Any]) -> str:
+    """Show the result of a guard or validator check, and why."""
+    reasons = f": {'; '.join(event['reasons'])}" if event.get("reasons") else ""
+    return f"  Check {event['check']}: {event['status']}{reasons}"
+
+
 EVENT_DESCRIPTIONS = {
     "node": _describe_node,
     "state": _describe_state,
@@ -139,6 +145,7 @@ EVENT_DESCRIPTIONS = {
     "retrieval": _describe_retrieval,
     "research": _describe_research,
     "tool": _describe_tool,
+    "validation": _describe_validation,
 }
 
 

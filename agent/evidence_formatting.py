@@ -1,8 +1,9 @@
 """Put retrieved text into prompts, wrapped so that it can only be read as data.
 
 Rule 5: every document or finding goes inside `<document>` tags, with its text escaped so that
-it cannot close its own tag. Sub-agents and the response agent share this, so there is one
-implementation of the rule. `api/tracing.py` hides the body of these tags from LangSmith.
+it cannot close its own tag, and passes the content guard first. Every model that reads retrieved
+text gets it from here, so no path can skip either step. `api/tracing.py` hides the body of these
+tags from LangSmith.
 """
 
 import json
@@ -10,7 +11,13 @@ from html import escape
 
 from agent.schemas import Finding, ResearchReport
 from retrieval.models import RetrievedChunk
+from security.content_guard import remove_injected_sentences
 from tools.models import ToolResult
+
+
+def _make_safe(text: str, quote: bool) -> str:
+    """Remove injected sentences, and then escape what remains (rule 5)."""
+    return escape(remove_injected_sentences(text), quote=quote)
 
 
 def format_document_tag(tag_id: int | str, title: str, source_label: str, body: str) -> str:
@@ -18,11 +25,11 @@ def format_document_tag(tag_id: int | str, title: str, source_label: str, body: 
 
     `source_label` says where the text sits, such as a section heading.
     """
-    safe_title = escape(title, quote=True)
-    safe_label = escape(source_label, quote=True)
+    safe_title = _make_safe(title, quote=True)
+    safe_label = _make_safe(source_label, quote=True)
     return (
         f'<document id="{tag_id}" title="{safe_title}" section="{safe_label}">\n'
-        f"{escape(body, quote=False)}\n"
+        f"{_make_safe(body, quote=False)}\n"
         "</document>"
     )
 
@@ -44,7 +51,7 @@ def format_tool_results(tool_results: list[ToolResult]) -> str:
         safe_name = escape(tool_result.tool_name, quote=True)
         result_tags.append(
             f'<tool_result name="{safe_name}" status="{tool_result.status}">\n'
-            f"{escape(body or tool_result.message, quote=False)}\n"
+            f"{_make_safe(body or tool_result.message, quote=False)}\n"
             "</tool_result>"
         )
     return "\n\n".join(result_tags)
@@ -73,10 +80,10 @@ def format_research_report(report: ResearchReport, evidence: list[RetrievedChunk
     theme_blocks = []
     for theme in report.themes:
         theme_heading = (
-            f'<theme name="{escape(theme.name, quote=True)}" '
+            f'<theme name="{_make_safe(theme.name, quote=True)}" '
             f'documents="{theme.document_count}" '
             f'first_date="{theme.first_date}" last_date="{theme.last_date}" '
-            f'summary="{escape(theme.summary, quote=True)}">'
+            f'summary="{_make_safe(theme.summary, quote=True)}">'
         )
         finding_tags: list[str] = []
         for finding in theme.findings:

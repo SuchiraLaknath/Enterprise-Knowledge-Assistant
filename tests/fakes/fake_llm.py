@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 from agent.llm_gateway import AllModelsFailedError, GatewayResult
-from agent.schemas import Plan
+from agent.schemas import AnswerJudgement, InputJudgement, Plan
 
 
 def make_plan(
@@ -21,6 +21,13 @@ def make_plan(
         "needs_tools": False,
     }
     return Plan(**(values | overrides))
+
+
+# The guards run on every turn, so tests that are not about them get a harmless reply.
+DEFAULT_GUARD_REPLIES = {
+    InputJudgement: InputJudgement(is_attack=False, category=""),
+    AnswerJudgement: AnswerJudgement(supported_by_evidence=True, on_brand=True, problem=""),
+}
 
 
 class FakeLlm:
@@ -52,6 +59,8 @@ class FakeLlm:
         self.received_structured_calls.append((output_schema, list(messages)))
         if self.fails:
             raise AllModelsFailedError(route_name, ["fake:model"])
+        if output_schema in DEFAULT_GUARD_REPLIES and output_schema not in self.replies:
+            return GatewayResult(DEFAULT_GUARD_REPLIES[output_schema], "fake:model")
         if output_schema in self.replies:
             reply_source = self.replies[output_schema]
             reply = reply_source(messages) if callable(reply_source) else reply_source.pop(0)
@@ -73,7 +82,8 @@ class FakeLlm:
         self.received_answer_messages.append(list(messages))
         if self.fails:
             raise AllModelsFailedError(route_name, ["fake:model"])
-        answer = self.answers.pop(0)
+        # The last answer repeats, so that a test can reach the validator's retry limit.
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         for token in self.stream_tokens or [answer]:
             await on_text(token)
         return GatewayResult(answer, "fake:model")

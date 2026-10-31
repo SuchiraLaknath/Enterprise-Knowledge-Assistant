@@ -22,6 +22,7 @@ ANALYST = UserContext(
 )
 THREAD_CONFIG = {"configurable": {"thread_id": "tool-test"}}
 TOOL_PLAN = make_plan(needs_documents=False, needs_tools=True)
+PLAIN_ANSWER = "Asha Fernando owns the Card Switch."
 MCP_DATA = {"service_catalog": [{"name": "Card Switch", "owner": "Asha Fernando"}]}
 
 
@@ -70,16 +71,22 @@ def tool_events(events):
 
 
 async def test_a_tool_question_runs_the_tool_and_answers_from_it():
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[[tool_call("mcp__service_catalog")], []])
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[[tool_call("mcp__service_catalog")], []],
+    )
 
     events, state = await run_turn(make_dependencies(llm))
 
     assert started_nodes(events) == [
         "load_context",
+        "input_guard",
         "supervisor",
         "tool_agent",
         "supervisor",
         "response_agent",
+        "validator",
     ]
     assert tool_events(events)[0]["tool_name"] == "mcp.service_catalog"
     assert tool_events(events)[0]["status"] == "ok"
@@ -88,7 +95,7 @@ async def test_a_tool_question_runs_the_tool_and_answers_from_it():
 
 async def test_the_model_is_only_offered_tools_for_its_role():
     # Rule 2's first check, seen from what really reaches the model.
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[[]])
+    llm = FakeLlm(answers=[PLAIN_ANSWER], plans=[TOOL_PLAN], tool_call_rounds=[[]])
 
     await run_turn(make_dependencies(llm), user=VIEWER)
 
@@ -99,7 +106,11 @@ async def test_the_model_is_only_offered_tools_for_its_role():
 async def test_a_tool_the_model_was_never_offered_is_denied_and_audited():
     # Attack: an injected model calls an admin tool by name anyway.
     audit_log = InMemoryAuditLog()
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[[tool_call("admin__view_audit_log")], []])
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[[tool_call("admin__view_audit_log")], []],
+    )
 
     events, state = await run_turn(make_dependencies(llm, audit_log=audit_log), user=VIEWER)
 
@@ -111,7 +122,11 @@ async def test_a_tool_the_model_was_never_offered_is_denied_and_audited():
 async def test_the_verified_user_reaches_the_mcp_client():
     # Rule 2: the role comes from the token, and never from the model's arguments.
     mcp_client = FakeMcpClient(MCP_DATA)
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[[tool_call("mcp__service_catalog")], []])
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[[tool_call("mcp__service_catalog")], []],
+    )
 
     await run_turn(make_dependencies(llm, mcp_client=mcp_client))
 
@@ -149,10 +164,33 @@ async def test_analysis_sees_metadata_and_never_document_text():
     assert "UNIQUE-SOURCE-TEXT" not in state["tool_results"][0].data
 
 
+async def test_search_is_not_offered_again_after_documents_were_searched():
+    # A live run called knowledge_search three times in a row instead of analysing the results.
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[make_plan(needs_documents=True, needs_tools=True)],
+        tool_call_rounds=[[]],
+    )
+
+    await run_turn(make_agent_dependencies(llm, SearchReturning()))
+
+    offered = {schema["function"]["name"] for schema in llm.received_tool_schemas[0]}
+    assert "knowledge_search" not in offered
+    assert "python_analysis" in offered
+
+
+async def test_a_viewer_with_no_tools_left_makes_no_tool_call():
+    llm = FakeLlm(answers=[PLAIN_ANSWER], plans=[make_plan(needs_documents=True, needs_tools=True)])
+
+    await run_turn(make_agent_dependencies(llm, SearchReturning()), user=VIEWER)
+
+    assert llm.received_tool_schemas == []
+
+
 async def test_tool_rounds_are_bounded():
     # Attack: a model that keeps asking for one more tool must not loop forever.
     rounds = [[tool_call("mcp__service_catalog")] for _ in range(20)]
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=rounds)
+    llm = FakeLlm(answers=[PLAIN_ANSWER], plans=[TOOL_PLAN], tool_call_rounds=rounds)
 
     await run_turn(make_dependencies(llm))
 
@@ -161,7 +199,9 @@ async def test_tool_rounds_are_bounded():
 
 async def test_tool_calls_per_turn_are_bounded():
     many_calls = [tool_call("mcp__service_catalog") for _ in range(50)]
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[many_calls, many_calls])
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER], plans=[TOOL_PLAN], tool_call_rounds=[many_calls, many_calls]
+    )
 
     events, _ = await run_turn(make_dependencies(llm))
 
@@ -193,7 +233,11 @@ async def test_tool_results_from_an_earlier_turn_are_gone():
 
 @pytest.mark.faults
 async def test_an_mcp_outage_still_gives_an_answer():
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[[tool_call("mcp__service_catalog")], []])
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[[tool_call("mcp__service_catalog")], []],
+    )
     dependencies = make_dependencies(llm, mcp_client=FakeMcpClient(fails=True))
 
     events, state = await run_turn(dependencies)
@@ -205,7 +249,11 @@ async def test_an_mcp_outage_still_gives_an_answer():
 
 @pytest.mark.faults
 async def test_a_tool_timeout_fault_still_gives_an_answer():
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[[tool_call("mcp__service_catalog")], []])
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[[tool_call("mcp__service_catalog")], []],
+    )
     dependencies = make_dependencies(llm, enabled_faults=("tool_timeout",))
 
     events, state = await run_turn(dependencies)
@@ -218,7 +266,7 @@ async def test_a_tool_timeout_fault_still_gives_an_answer():
 @pytest.mark.faults
 async def test_no_model_for_tool_selection_still_gives_an_answer():
     outage = AllModelsFailedError("fast", ["fake:model"])
-    llm = FakeLlm(plans=[TOOL_PLAN], tool_call_rounds=[outage])
+    llm = FakeLlm(answers=[PLAIN_ANSWER], plans=[TOOL_PLAN], tool_call_rounds=[outage])
 
     _, state = await run_turn(make_dependencies(llm))
 

@@ -149,6 +149,13 @@ class ResearchLimits(BaseModel):
     plan_regeneration_limit: int = Field(ge=0)
 
 
+class RoleRateLimit(BaseModel):
+    """One role's token bucket."""
+
+    capacity: int = Field(gt=0)
+    refill_per_minute: float = Field(gt=0)
+
+
 class ToolLimits(BaseModel):
     """Bounds on tool calls, so that a slow tool cannot hold a turn open."""
 
@@ -174,6 +181,7 @@ class Limits(BaseModel):
     sandbox: SandboxLimits
     research: ResearchLimits
     tools: ToolLimits
+    rate_limits: dict[str, RoleRateLimit]
 
 
 class ModelNames(BaseModel):

@@ -100,7 +100,10 @@ def build_final_event(state_values: dict[str, Any], draft: str) -> dict[str, Any
 
 
 async def stream_chat_turn(
-    request: ChatRequest, user: UserContext, services: ApplicationServices
+    request: ChatRequest,
+    user: UserContext,
+    services: ApplicationServices,
+    request_degraded: list[str],
 ) -> AsyncIterator[dict[str, str]]:
     """Run the graph once, forwarding each activity event as it happens."""
     # Step 1: scope the turn to this user, and bind its ids to every log line.
@@ -121,7 +124,11 @@ async def stream_chat_turn(
         },
     }
     # Rule 1: the user comes from the verified token, and the graph receives it as data.
-    graph_input: AgentState = {"messages": [HumanMessage(request.message)], "user": user}
+    graph_input: AgentState = {
+        "messages": [HumanMessage(request.message)],
+        "user": user,
+        "request_degraded": request_degraded,
+    }
 
     # Step 2: forward each event as the nodes produce it, tracking the draft the employee sees.
     draft = ""
@@ -163,4 +170,13 @@ async def chat(
     """Answer one message, streaming the agent's activity and then the final answer."""
     if len(chat_request.message) > services.api_limits.max_message_length:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Message is too long.")
-    return EventSourceResponse(stream_chat_turn(chat_request, user, services))
+
+    # This runs before the stream opens, so a refused request costs no LLM call.
+    decision = await services.rate_limiter.check(user)
+    if not decision.allowed:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please wait a moment and try again.",
+            headers={"Retry-After": str(decision.retry_after_s)},
+        )
+    return EventSourceResponse(stream_chat_turn(chat_request, user, services, decision.degraded))

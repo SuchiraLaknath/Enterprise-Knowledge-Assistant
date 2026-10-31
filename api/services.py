@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from agent.dependencies import AgentDependencies
 from agent.graph import AgentGraph
+from api.ratelimit import RateLimiter
 from config.settings import ApiLimits, RoleAccess
 
 
@@ -17,3 +18,4 @@ class ApplicationServices:
     role_access: RoleAccess
     api_limits: ApiLimits
     langsmith_project: str
+    rate_limiter: RateLimiter
