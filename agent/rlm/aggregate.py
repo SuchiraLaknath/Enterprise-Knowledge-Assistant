@@ -9,7 +9,7 @@ findings, their own labels group them instead.
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agent.dependencies import AgentDependencies
-from agent.evidence_formatting import format_document_tag
+from agent.evidence_formatting import format_document_tag, make_prompt_safe
 from agent.llm_gateway import AllModelsFailedError
 from agent.prompts.research import AGGREGATOR_REQUEST_TEMPLATE, AGGREGATOR_SYSTEM_PROMPT
 from agent.schemas import Finding, ResearchTheme, ThemeDraft, ThemeGrouping
@@ -51,7 +51,7 @@ async def propose_themes(
         for finding in findings
     ]
     request_text = AGGREGATOR_REQUEST_TEMPLATE.format(
-        question=question, findings="\n\n".join(finding_tags)
+        question=make_prompt_safe(question), findings="\n\n".join(finding_tags)
     )
     messages: list[BaseMessage] = [
         SystemMessage(AGGREGATOR_SYSTEM_PROMPT),

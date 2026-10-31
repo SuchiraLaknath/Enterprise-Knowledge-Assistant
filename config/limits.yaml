@@ -119,6 +119,8 @@ tools:
   analysis_timeout_s: 10.0
   # Seconds allowed for one call to the MCP server.
   mcp_timeout_s: 8.0
+  # Seconds a signed role token lasts. Just over the timeout, so a stolen one is soon useless.
+  mcp_token_lifetime_s: 30.0
   # Seconds allowed to read the audit log.
   audit_timeout_s: 5.0
   # Times the tool agent may look at results and call again, which bounds its loop.

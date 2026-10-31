@@ -130,3 +130,45 @@ def test_an_ordinary_payload_is_redacted_by_the_anonymizer():
     payload = {"messages": [f'<document id="1" a="b">{SECRET_TEXT}</document>'], "error": None}
 
     assert SECRET_TEXT not in str(anonymize_trace_payload(payload))
+
+
+def test_tool_result_bodies_are_hidden_from_prompts():
+    prompt = f'<tool_result name="mcp.incident_records" status="ok">{SECRET_TEXT}</tool_result>'
+
+    redacted = redact_document_text({"content": prompt})
+
+    assert SECRET_TEXT not in str(redacted)
+    assert "mcp.incident_records" in str(redacted)
+
+
+def test_a_tool_result_in_state_loses_its_data_and_keeps_its_outcome():
+    payload = {"tool_name": "python_analysis", "status": "ok", "data": SECRET_TEXT}
+
+    assert redact_document_text(payload) == {"tool_name": "python_analysis", "status": "ok"}
+
+
+def test_memory_is_hidden_from_prompts_and_state():
+    prompt = f"Known: <memory>\n{SECRET_TEXT}\n</memory>"
+    state = {"memory_context": SECRET_TEXT, "conversation_summary": SECRET_TEXT}
+
+    assert SECRET_TEXT not in str(redact_document_text({"content": prompt}))
+    assert SECRET_TEXT not in str(redact_document_text(state))
+
+
+def test_tool_call_arguments_are_hidden():
+    message = {"tool_calls": [{"name": "python_analysis", "args": {"code": SECRET_TEXT}}]}
+
+    assert SECRET_TEXT not in str(redact_document_text(message))
+
+
+def test_excerpts_are_hidden_as_they_are_raw_document_text():
+    state = {"answer_is_excerpts": True, "final_answer": SECRET_TEXT}
+
+    assert SECRET_TEXT not in str(redact_document_text(state))
+
+
+def test_an_ordinary_answer_stays_visible():
+    # The owner decided that traces should show answers, so evaluators can follow a turn.
+    state = {"answer_is_excerpts": False, "final_answer": "A certificate expired [1]."}
+
+    assert "A certificate expired" in str(redact_document_text(state))

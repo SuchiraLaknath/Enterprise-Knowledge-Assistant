@@ -16,7 +16,7 @@ from security.content_guard import remove_injected_sentences
 from tools.models import ToolResult
 
 
-def _make_safe(text: str, quote: bool) -> str:
+def make_prompt_safe(text: str, quote: bool = False) -> str:
     """Remove injected sentences, and then escape what remains (rule 5)."""
     return escape(remove_injected_sentences(text), quote=quote)
 
@@ -26,11 +26,11 @@ def format_document_tag(tag_id: int | str, title: str, source_label: str, body: 
 
     `source_label` says where the text sits, such as a section heading.
     """
-    safe_title = _make_safe(title, quote=True)
-    safe_label = _make_safe(source_label, quote=True)
+    safe_title = make_prompt_safe(title, quote=True)
+    safe_label = make_prompt_safe(source_label, quote=True)
     return (
         f'<document id="{tag_id}" title="{safe_title}" section="{safe_label}">\n'
-        f"{_make_safe(body, quote=False)}\n"
+        f"{make_prompt_safe(body, quote=False)}\n"
         "</document>"
     )
 
@@ -48,11 +48,16 @@ def format_tool_results(tool_results: list[ToolResult]) -> str:
     """Wrap each tool result as data (rule 5). Records from a tool are untrusted like documents."""
     result_tags = []
     for tool_result in tool_results:
-        body = json.dumps(tool_result.data, default=str) if tool_result.status == "ok" else ""
+        # Unescaped, because an escape such as \\u200b would hide characters from the content guard.
+        body = (
+            json.dumps(tool_result.data, default=str, ensure_ascii=False)
+            if tool_result.status == "ok"
+            else ""
+        )
         safe_name = escape(tool_result.tool_name, quote=True)
         result_tags.append(
             f'<tool_result name="{safe_name}" status="{tool_result.status}">\n'
-            f"{_make_safe(body or tool_result.message, quote=False)}\n"
+            f"{make_prompt_safe(body or tool_result.message, quote=False)}\n"
             "</tool_result>"
         )
     return "\n\n".join(result_tags)
@@ -65,8 +70,10 @@ def format_memory_context(summary: str, facts: list[str]) -> str:
     """
     memory_lines = []
     if summary:
-        memory_lines.append(f"Earlier in this conversation: {_make_safe(summary, quote=False)}")
-    memory_lines.extend(f"- {_make_safe(fact, quote=False)}" for fact in facts)
+        memory_lines.append(
+            f"Earlier in this conversation: {make_prompt_safe(summary, quote=False)}"
+        )
+    memory_lines.extend(f"- {make_prompt_safe(fact, quote=False)}" for fact in facts)
     if not memory_lines:
         return ""
     return MEMORY_CONTEXT_TEMPLATE.format(memory_text="\n".join(memory_lines))
@@ -95,10 +102,10 @@ def format_research_report(report: ResearchReport, evidence: list[RetrievedChunk
     theme_blocks = []
     for theme in report.themes:
         theme_heading = (
-            f'<theme name="{_make_safe(theme.name, quote=True)}" '
+            f'<theme name="{make_prompt_safe(theme.name, quote=True)}" '
             f'documents="{theme.document_count}" '
             f'first_date="{theme.first_date}" last_date="{theme.last_date}" '
-            f'summary="{_make_safe(theme.summary, quote=True)}">'
+            f'summary="{make_prompt_safe(theme.summary, quote=True)}">'
         )
         finding_tags: list[str] = []
         for finding in theme.findings:

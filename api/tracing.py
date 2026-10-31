@@ -7,8 +7,9 @@ system prompt, the question and the answer.
 
 Research findings are hidden as well, because a sub-agent's claim often quotes its document
 closely, and a theme summary paraphrases those claims. Their ids, labels and evidence chunk ids
-stay, so a trace still shows what was found. An error keeps only its type, because a parser's
-error quotes the whole reply that it could not read.
+stay, so a trace still shows what was found. Tool data, tool arguments and memory are hidden for
+the same reason. An error keeps only its type, because a parser's error quotes the whole reply
+that it could not read.
 """
 
 import re
@@ -22,8 +23,14 @@ from pydantic import BaseModel
 DOCUMENT_BODY_PATTERN = re.compile(r"(<document [^>]*>).*?(</document>)", re.DOTALL)
 HIDDEN_DOCUMENT_TEXT = r"\1[document text hidden]\2"
 
-# Model text that comes from documents. In parsed form these are ordinary fields.
-HIDDEN_FIELD_NAMES = ("claim", "summary")
+# Text in a prompt that came from a tool, or from what was remembered about the employee.
+TOOL_RESULT_BODY_PATTERN = re.compile(r"(<tool_result [^>]*>).*?(</tool_result>)", re.DOTALL)
+MEMORY_BODY_PATTERN = re.compile(r"(<memory>).*?(</memory>)", re.DOTALL)
+HIDDEN_DATA_TEXT = r"\1[data hidden]\2"
+
+# Model text that comes from documents, and fields that hold tool arguments or memory. In parsed
+# form these are ordinary fields. `args` is how a model's tool call carries its arguments.
+HIDDEN_FIELD_NAMES = ("claim", "summary", "args", "memory_context", "conversation_summary")
 HIDDEN_FINDING_TEXT = "[finding text hidden]"
 
 # Before parsing, a model's reply is JSON inside a string. The closing quote is optional, because
@@ -45,6 +52,8 @@ def redact_document_text(payload: Any) -> Any:
     """
     if isinstance(payload, str):
         without_documents = DOCUMENT_BODY_PATTERN.sub(HIDDEN_DOCUMENT_TEXT, payload)
+        without_documents = TOOL_RESULT_BODY_PATTERN.sub(HIDDEN_DATA_TEXT, without_documents)
+        without_documents = MEMORY_BODY_PATTERN.sub(HIDDEN_DATA_TEXT, without_documents)
         without_summaries = THEME_SUMMARY_PATTERN.sub(
             HIDDEN_FINDING_SUBSTITUTION, without_documents
         )
@@ -54,10 +63,16 @@ def redact_document_text(payload: Any) -> Any:
     if isinstance(payload, dict):
         # A record with both of these fields is a retrieved chunk, whose text must not leave.
         is_retrieved_chunk = "chunk_id" in payload and "text" in payload
+        # A record with `tool_name` and `data` is a tool result, which can hold internal records.
+        is_tool_result = "tool_name" in payload and "data" in payload
+        # Excerpts are raw document text, so such an answer is hidden, as an answer normally isn't.
+        hidden_field_names: tuple[str, ...] = HIDDEN_FIELD_NAMES
+        if payload.get("answer_is_excerpts"):
+            hidden_field_names = (*HIDDEN_FIELD_NAMES, "final_answer")
         return {
-            key: HIDDEN_FINDING_TEXT if key in HIDDEN_FIELD_NAMES else redact_document_text(value)
+            key: HIDDEN_FINDING_TEXT if key in hidden_field_names else redact_document_text(value)
             for key, value in payload.items()
-            if not (is_retrieved_chunk and key == "text")
+            if not (is_retrieved_chunk and key == "text") and not (is_tool_result and key == "data")
         }
     if isinstance(payload, list | tuple):
         return [redact_document_text(value) for value in payload]

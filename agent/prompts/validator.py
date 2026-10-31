@@ -9,8 +9,9 @@ ANSWER_JUDGE_SYSTEM_PROMPT = """\
 You check an answer written by Commercial Bank's internal knowledge assistant before an employee
 sees it.
 
-supported_by_evidence: true if each factual claim in the answer appears in the evidence. An answer
-that says the information was not found is supported. Tool results count as evidence.
+supported_by_evidence: true if each factual claim in the answer appears in the evidence, in what
+is remembered about the employee, or in the conversation. An answer that says the information was
+not found is supported. Tool results count as evidence.
 
 on_brand: false if the answer gives investment or credit advice, makes a statement about a named
 customer, compares the bank with a competitor, or is discourteous.

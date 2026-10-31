@@ -7,8 +7,8 @@ brand patterns must be absent. An LLM judge then checks support and tone. The ou
     fail                    the response agent writes it again, up to the retry limit
     insufficient evidence   the search runs once more, without the plan's narrowing
 
-After the last failed retry, the answer is replaced by cited excerpts, which need no model and
-cannot go off-brand. Rule 9: nothing reaches the conversation until this node lets it.
+After the last failed retry, the answer is replaced by cited excerpts of the documents, which
+need no model. Rule 9: nothing reaches the conversation until this node lets it.
 """
 
 from html import escape
@@ -19,13 +19,15 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.runtime import Runtime
 
 from agent.dependencies import AgentDependencies
+from agent.evidence_formatting import make_prompt_safe
 from agent.llm_gateway import AllModelsFailedError
 from agent.nodes.response_agent import (
-    CITATION_MARKER_PATTERN,
     CONVERSATION_NOTE_FOR_EXCERPTS,
+    NO_RELIABLE_ANSWER_REPLY,
     build_evidence_text,
     build_extractive_answer,
     extract_citations,
+    find_citation_markers,
 )
 from agent.nodes.supervisor import latest_user_text
 from agent.prompts.validator import (
@@ -42,6 +44,8 @@ logger = structlog.get_logger()
 
 NODE_NAME = "validator"
 JUDGE_ROUTE = "fast"
+# Enough of the conversation to check a follow-up, without paying for all of it.
+JUDGE_CONVERSATION_MESSAGES = 6
 
 DEGRADED_JUDGE_UNAVAILABLE = "answer_judge_unavailable"
 DEGRADED_MODEL_FALLBACK = "validator_used_fallback_model"
@@ -49,11 +53,14 @@ DEGRADED_ANSWER_REPLACED = "answer_failed_validation_excerpts_shown"
 EMPTY_ANSWER_PROBLEM = "The answer was empty."
 BRAND_PROBLEM_TEMPLATE = "The answer breaks a brand rule: {category}."
 DEAD_CITATION_TEMPLATE = "It cites [{marker}], which is not one of the documents provided."
+# Fixed wording. The judge reads retrieved text, so its own words must not reach the next prompt.
+UNSUPPORTED_PROBLEM = "It makes a claim that the evidence does not support."
+OFF_BRAND_PROBLEM = "It breaks a brand rule: advice, a named customer, a competitor or its tone."
 
 
 def find_dead_citations(answer: str, evidence_count: int) -> list[int]:
     """Return each `[n]` that points at nothing. Rule 4: these would be hallucinated sources."""
-    markers = {int(marker) for marker in CITATION_MARKER_PATTERN.findall(answer)}
+    markers = find_citation_markers(answer)
     return sorted(marker for marker in markers if not 1 <= marker <= evidence_count)
 
 
@@ -72,15 +79,26 @@ def check_answer_rules(answer: str, evidence_count: int) -> list[str]:
     return problems
 
 
+def _build_judge_evidence(state: AgentState) -> str:
+    """Return what the answer may fairly draw on: evidence, memory and the conversation.
+
+    Without the last two, the judge would reject a correct answer drawn from memory, or a reply
+    to "what did I just ask?".
+    """
+    evidence_text, _ = build_evidence_text(state)
+    recent_messages = state["messages"][-JUDGE_CONVERSATION_MESSAGES:]
+    conversation = "\n".join(make_prompt_safe(message.text) for message in recent_messages)
+    return f"{evidence_text}{state.get('memory_context', '')}\n\nConversation:\n{conversation}"
+
+
 async def _ask_judge(
-    state: AgentState, dependencies: AgentDependencies
+    state: AgentState, answer: str, dependencies: AgentDependencies
 ) -> tuple[list[str], list[str]]:
     """Return what the judge found, and any degradation. With no model, code's checks stand."""
-    evidence_text, _ = build_evidence_text(state)
     request_text = ANSWER_JUDGE_REQUEST_TEMPLATE.format(
-        question=escape(latest_user_text(state), quote=False),
-        evidence=evidence_text,
-        answer=escape(state["final_answer"], quote=False),
+        question=make_prompt_safe(latest_user_text(state)),
+        evidence=_build_judge_evidence(state),
+        answer=escape(answer, quote=False),
     )
     messages: list[BaseMessage] = [
         SystemMessage(ANSWER_JUDGE_SYSTEM_PROMPT),
@@ -95,9 +113,12 @@ async def _ask_judge(
 
     judgement = judge_result.value
     degraded = judge_result.describe_fallbacks(DEGRADED_MODEL_FALLBACK)
-    if judgement.supported_by_evidence and judgement.on_brand:
-        return [], degraded
-    return [judgement.problem or "The answer failed the judge's check."], degraded
+    problems = []
+    if not judgement.supported_by_evidence:
+        problems.append(UNSUPPORTED_PROBLEM)
+    if not judgement.on_brand:
+        problems.append(OFF_BRAND_PROBLEM)
+    return problems, degraded
 
 
 def _needs_wider_search(state: AgentState, max_evidence_retries: int) -> bool:
@@ -107,6 +128,7 @@ def _needs_wider_search(state: AgentState, max_evidence_retries: int) -> bool:
         plan is not None
         and plan.needs_documents
         and not state.get("evidence")
+        and not state.get("tool_results")
         and state.get("research_report") is None
         and state.get("evidence_retries", 0) < max_evidence_retries
     )
@@ -141,7 +163,12 @@ def _replace_with_excerpts(
 ) -> dict[str, Any]:
     """Show cited excerpts instead, as the retries are used up. They cannot go off-brand."""
     evidence = state.get("evidence", [])
-    excerpts = build_extractive_answer(evidence)
+    excerpts = build_extractive_answer(evidence, NO_RELIABLE_ANSWER_REPLY)
+
+    # A notice is owed whatever the answer turned out to be.
+    turn_notice = state.get("turn_notice")
+    if turn_notice:
+        excerpts = f"{excerpts}\n\n{turn_notice}"
     doc_ids = ", ".join(sorted({chunk.doc_id for chunk in evidence})) or "none"
     # Rule 5: excerpts are raw document text, so the conversation keeps only a short note.
     return {
@@ -156,7 +183,8 @@ def _replace_with_excerpts(
 async def validator(state: AgentState, runtime: Runtime[AgentDependencies]) -> dict[str, Any]:
     """Check the answer, and decide what happens to it."""
     emit_node_started(NODE_NAME)
-    answer = state["final_answer"]
+    # The fixed notice is the code's own sentence, so it is not the model's claim to check.
+    answer = state["final_answer"].removesuffix(f"\n\n{state.get('turn_notice') or ''}")
     evidence = state.get("evidence", [])
 
     # Step 1: nothing was found, so try once more before accepting that.
@@ -184,7 +212,7 @@ async def validator(state: AgentState, runtime: Runtime[AgentDependencies]) -> d
 
     # Step 3: the judge reads for sense. Excerpts are skipped, as they quote the evidence itself.
     if not problems and not state.get("answer_is_excerpts", False):
-        problems, degraded = await _ask_judge(state, runtime.context)
+        problems, degraded = await _ask_judge(state, answer, runtime.context)
 
     # Step 4: act on the result.
     report = ValidationReport(status="fail" if problems else "pass", reasons=problems)

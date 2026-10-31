@@ -35,4 +35,8 @@ def remove_injected_sentences(text: str) -> str:
         else:
             cleaned_sentences.append(sentence)
     # Joined with spaces: a poisoned passage loses its layout, which is fine for a model to read.
-    return " ".join(cleaned_sentences)
+    cleaned_text = " ".join(cleaned_sentences)
+
+    # An injection split across lines passes each line, and rejoining would rebuild it, so if the
+    # result is still unsafe then none of this text can be trusted.
+    return REMOVED_TEXT_NOTICE if contains_injection(cleaned_text) else cleaned_text

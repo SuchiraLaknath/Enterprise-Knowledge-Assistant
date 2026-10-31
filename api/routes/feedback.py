@@ -9,7 +9,7 @@ import uuid
 from typing import Annotated, Literal
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from langsmith import Client as LangSmithClient
 from pydantic import BaseModel, Field
 
@@ -62,6 +62,14 @@ async def record_feedback(
     services: Annotated[ApplicationServices, Depends(get_services)],
 ) -> FeedbackReceipt:
     """Store a rating. Thumbs-down questions become candidates for the evals set."""
+    # Each rating reaches Postgres and LangSmith, so it spends from the same bucket as a turn.
+    decision = await services.rate_limiter.check(user)
+    if not decision.allowed:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please wait a moment and try again.",
+            headers={"Retry-After": str(decision.retry_after_s)},
+        )
     stored = await services.feedback_store.record(
         user, feedback.run_id, feedback.rating, feedback.question
     )

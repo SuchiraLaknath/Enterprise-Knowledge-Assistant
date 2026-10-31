@@ -177,6 +177,7 @@ class ToolLimits(BaseModel):
     search_timeout_s: float = Field(gt=0)
     analysis_timeout_s: float = Field(gt=0)
     mcp_timeout_s: float = Field(gt=0)
+    mcp_token_lifetime_s: float = Field(gt=0)
     audit_timeout_s: float = Field(gt=0)
     max_rounds: int = Field(gt=0)
     max_calls_per_turn: int = Field(gt=0)

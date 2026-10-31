@@ -15,6 +15,7 @@ from html import escape
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agent.dependencies import AgentDependencies
+from agent.evidence_formatting import make_prompt_safe
 from agent.llm_gateway import AllModelsFailedError
 from agent.prompts.research import (
     PLANNER_REQUEST_TEMPLATE,
@@ -78,7 +79,7 @@ def _build_planner_messages(
     catalog_summary = dependencies.document_catalog.summarize(user)
     request_text = PLANNER_REQUEST_TEMPLATE.format(
         question=escape(question, quote=False),
-        search_query=escape(plan.search_query, quote=False),
+        search_query=make_prompt_safe(plan.search_query),
         departments=plan.departments,
         document_types=plan.document_types,
         recent_days=plan.recent_days,
@@ -86,7 +87,7 @@ def _build_planner_messages(
     )
     if plan_error:
         request_text += PLANNER_RETRY_TEMPLATE.format(
-            plan_error=escape(plan_error, quote=False), previous_code=previous_code
+            plan_error=make_prompt_safe(plan_error), previous_code=previous_code
         )
     return [SystemMessage(system_prompt), HumanMessage(request_text)]
 

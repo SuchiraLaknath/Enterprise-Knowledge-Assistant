@@ -12,6 +12,7 @@ pauses at `human_approval`, and this node runs it on the way back, with the stor
 """
 
 import asyncio
+import copy
 from typing import Any, Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -60,7 +61,10 @@ def build_analysis_records(
     ]
     for tool_result in tool_results:
         if isinstance(tool_result.data, list):
-            records.extend(item for item in tool_result.data if isinstance(item, dict))
+            # Copies, because generated code could otherwise change a result before it is read.
+            records.extend(
+                copy.deepcopy(item) for item in tool_result.data if isinstance(item, dict)
+            )
     return records
 
 
@@ -135,13 +139,23 @@ def _select_offered_tools(
 
 
 def _find_write_call(
-    tool_calls: list[ToolCallRequest], dependencies: AgentDependencies
+    tool_calls: list[ToolCallRequest],
+    dependencies: AgentDependencies,
+    offered_tool_names: set[str],
 ) -> PendingToolCall | None:
-    """Return the first requested write tool, which must wait for a person (rule 3)."""
+    """Return the first requested write tool, which must wait for a person (rule 3).
+
+    Only a tool that was offered can pause the turn. Anything else goes to the registry, which
+    denies and audits it, so that a person is never asked to approve what the role cannot do.
+    """
     for tool_call in tool_calls:
         tool_name = dependencies.tool_registry.resolve_model_name(tool_call.tool_name)
         definition = dependencies.tool_registry.get_definition(tool_name)
-        if definition is not None and definition.risk == "write":
+        if (
+            definition is not None
+            and definition.risk == "write"
+            and definition.name in offered_tool_names
+        ):
             return PendingToolCall(
                 tool_call_id=tool_call.call_id, tool_name=tool_name, arguments=tool_call.arguments
             )
@@ -149,10 +163,12 @@ def _find_write_call(
 
 
 async def _run_tool_rounds(
-    state: AgentState, dependencies: AgentDependencies, tool_schemas: list[dict[str, Any]]
+    state: AgentState, dependencies: AgentDependencies, offered_tools: list[ToolDefinition]
 ) -> tuple[list[ToolResult], list[str], PendingToolCall | None]:
     """Let the model call tools and see the results, bounded by rounds and by total calls."""
     limits = dependencies.tool_limits
+    tool_schemas = [definition.to_model_schema() for definition in offered_tools]
+    offered_tool_names = {definition.name for definition in offered_tools}
     tool_results: list[ToolResult] = []
     degraded: list[str] = []
     calls_made = 0
@@ -172,7 +188,7 @@ async def _run_tool_rounds(
             break
 
         # A write tool stops the round, and the turn pauses before anything changes.
-        pending_call = _find_write_call(selection.value, dependencies)
+        pending_call = _find_write_call(selection.value, dependencies, offered_tool_names)
         if pending_call is not None:
             return tool_results, degraded, pending_call
 
@@ -241,9 +257,8 @@ async def tool_agent(state: AgentState, runtime: Runtime[AgentDependencies]) -> 
     degraded: list[str] = []
     pending_call: PendingToolCall | None = None
     if offered_tools:
-        tool_schemas = [definition.to_model_schema() for definition in offered_tools]
         tool_results, degraded, pending_call = await _run_tool_rounds(
-            state, runtime.context, tool_schemas
+            state, runtime.context, offered_tools
         )
 
     # Step 2: one failed tool must not fail the turn, but the employee should know about it.

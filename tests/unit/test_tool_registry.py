@@ -131,6 +131,8 @@ async def test_a_made_up_tool_is_denied_and_audited():
 
     assert result.status == "denied"
     assert len(audit_log.entries) == 1
+    # A model chose that name, so the log holds a fixed value rather than its text.
+    assert audit_log.entries[0]["tool_name"] == "unknown_tool"
 
 
 @pytest.mark.parametrize(

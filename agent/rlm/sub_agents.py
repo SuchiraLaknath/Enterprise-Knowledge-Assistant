@@ -12,7 +12,6 @@ cannot overspend (rule 7).
 import asyncio
 from collections import Counter
 from collections.abc import Awaitable, Callable
-from html import escape
 from typing import Any
 
 import structlog
@@ -20,7 +19,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langsmith import traceable
 
 from agent.dependencies import LlmClient
-from agent.evidence_formatting import format_evidence_documents
+from agent.evidence_formatting import format_evidence_documents, make_prompt_safe
 from agent.prompts.research import SUB_AGENT_REQUEST_TEMPLATE, SUB_AGENT_SYSTEM_PROMPT
 from agent.schemas import BatchAnalysis, Finding
 from api.events import EventType, ResearchStage, emit_event
@@ -176,9 +175,9 @@ class SubAgentTeam:
         self.sub_agent_calls += 1
 
         # Rule 5: the sections reach the sub-agent as data, inside document tags. A plan can
-        # build its task from a title, so the task is escaped and cannot open a tag of its own.
+        # build its task from a title, so the task gets the same treatment.
         request_text = SUB_AGENT_REQUEST_TEMPLATE.format(
-            task=escape(task, quote=False), documents=format_evidence_documents(chunks)
+            task=make_prompt_safe(task), documents=format_evidence_documents(chunks)
         )
         messages: list[BaseMessage] = [
             SystemMessage(SUB_AGENT_SYSTEM_PROMPT),

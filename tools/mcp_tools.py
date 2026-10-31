@@ -31,6 +31,7 @@ class ServiceCatalogArguments(ToolArguments):
 class IncidentRecordsArguments(ToolArguments):
     """Find incident records."""
 
+    incident_id: str = Field(default="", max_length=20, description="An id such as LIVE-1041.")
     service_name: str = Field(default="", max_length=100, description="Part of a service name.")
     status: str = Field(default="", max_length=20, description="open, resolved, or empty for all.")
 

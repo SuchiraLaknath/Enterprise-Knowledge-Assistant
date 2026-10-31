@@ -55,8 +55,8 @@ class ToolSearcher(Protocol):
 class AuditRecorder(Protocol):
     """The audit operations the tools need, so that tests can supply a fake."""
 
-    async def record(self, user: UserContext, tool_name: str, outcome: str, detail: str) -> None:
-        """Store one audit entry."""
+    async def record(self, user: UserContext, tool_name: str, outcome: str, detail: str) -> bool:
+        """Store one audit entry, and return whether it reached lasting storage."""
         ...
 
     async def read_recent(self, entry_count: int) -> list[dict[str, Any]]:

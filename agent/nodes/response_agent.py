@@ -38,7 +38,9 @@ from security.stream_masker import StreamMasker, mask_sensitive_text
 NODE_NAME = "response_agent"
 ANSWER_ROUTE = "response"
 
-CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
+# Also matches lists and ranges such as [1, 2] and [1-3], which models write as well.
+CITATION_MARKER_PATTERN = re.compile(r"\[\s*\d+(?:\s*[,\u2013-]\s*\d+)*\s*\]")
+MARKER_NUMBER_PATTERN = re.compile(r"\d+")
 EXCERPT_WORD_COUNT = 60
 
 DEGRADED_MODEL_FALLBACK = "response_used_fallback_model"
@@ -49,6 +51,17 @@ CONVERSATION_NOTE_FOR_EXCERPTS = (
 NO_MODEL_NO_EVIDENCE_REPLY = (
     "I'm sorry, the assistant is temporarily unavailable. Please try again shortly."
 )
+NO_RELIABLE_ANSWER_REPLY = (
+    "I'm sorry, I could not produce a reliable answer to this. Please try rephrasing it."
+)
+
+
+def find_citation_markers(answer: str) -> set[int]:
+    """Return every number inside a citation, in any form that a model writes one."""
+    markers: set[int] = set()
+    for citation_text in CITATION_MARKER_PATTERN.findall(answer):
+        markers.update(int(number) for number in MARKER_NUMBER_PATTERN.findall(citation_text))
+    return markers
 
 
 def extract_citations(answer: str, evidence: list[RetrievedChunk]) -> list[Citation]:
@@ -56,7 +69,7 @@ def extract_citations(answer: str, evidence: list[RetrievedChunk]) -> list[Citat
 
     Rule 4: only markers that match this turn's evidence become citations.
     """
-    used_markers = sorted({int(marker) for marker in CITATION_MARKER_PATTERN.findall(answer)})
+    used_markers = sorted(find_citation_markers(answer))
     citations = []
     for marker in used_markers:
         if 1 <= marker <= len(evidence):
@@ -73,10 +86,12 @@ def extract_citations(answer: str, evidence: list[RetrievedChunk]) -> list[Citat
     return citations
 
 
-def build_extractive_answer(evidence: list[RetrievedChunk]) -> str:
+def build_extractive_answer(
+    evidence: list[RetrievedChunk], no_evidence_reply: str = NO_MODEL_NO_EVIDENCE_REPLY
+) -> str:
     """Show the evidence directly, for when no model can write an answer."""
     if not evidence:
-        return NO_MODEL_NO_EVIDENCE_REPLY
+        return no_evidence_reply
 
     excerpts = []
     for marker, chunk in enumerate(evidence, start=1):
@@ -87,7 +102,9 @@ def build_extractive_answer(evidence: list[RetrievedChunk]) -> str:
         "The assistant cannot write a full answer at the moment, so here are the most "
         "relevant excerpts from the documents:"
     )
-    return "\n\n".join([introduction, *excerpts])
+    # Excerpts are raw document text, and this answer can be rendered as markdown, so cleaning
+    # happens here, where no caller can miss it (rule 9).
+    return clean_final_answer("\n\n".join([introduction, *excerpts]))
 
 
 def remove_citation_markers(message: BaseMessage) -> BaseMessage:
@@ -138,24 +155,23 @@ def _build_answer_messages(state: AgentState, dependencies: AgentDependencies) -
 
     has_tool_results = bool(state.get("tool_results"))
     memory_context = state.get("memory_context", "")
+    feedback = state.get("validation_feedback", "")
+    retry_note: list[BaseMessage] = [HumanMessage(feedback)] if feedback else []
     if plan is not None and not plan.needs_documents and not has_tool_results:
-        return [SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT + memory_context), *conversation]
+        system_message = SystemMessage(NO_DOCUMENTS_SYSTEM_PROMPT + memory_context)
+        return [system_message, *conversation, *retry_note]
 
     # Rule 5: the documents sit in a user turn, followed by a fixed reply that labels them as
     # data, so they never read as instructions. The employee's question comes last.
     evidence_text, acknowledgement = build_evidence_text(state)
-    answer_messages: list[BaseMessage] = [
+    # A retry is told what was wrong, and comes last so that it is the model's next instruction.
+    return [
         SystemMessage(RESPONSE_SYSTEM_PROMPT + memory_context),
         HumanMessage(evidence_text),
         AIMessage(acknowledgement),
         *conversation,
+        *retry_note,
     ]
-
-    # A retry is told what was wrong, and comes last so that it is the model's next instruction.
-    feedback = state.get("validation_feedback", "")
-    if feedback:
-        answer_messages.append(HumanMessage(feedback))
-    return answer_messages
 
 
 async def _stream_masked_answer(

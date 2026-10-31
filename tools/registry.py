@@ -45,7 +45,9 @@ TOOL_TIMEOUT_FAULT = "tool_timeout"
 # Model APIs refuse dots in tool names, but the registry's names use them to show the family.
 MODEL_NAME_SEPARATOR = "__"
 
+UNKNOWN_TOOL_NAME = "unknown_tool"
 UNKNOWN_TOOL_MESSAGE = "This tool does not exist."
+AUDIT_UNAVAILABLE_MESSAGE = "This change cannot be recorded right now, so it was not made."
 ROLE_DENIED_MESSAGE = "Your role does not allow this tool."
 APPROVAL_REQUIRED_MESSAGE = "This action needs approval first."
 INVALID_ARGUMENTS_MESSAGE = "The tool was called with invalid arguments."
@@ -144,8 +146,10 @@ class ToolRegistry:
             or definition.handler is None
             or not self.is_role_allowed(tool_name, context.user.role)
         ):
-            await context.audit_log.record(context.user, tool_name, "denied", "role")
-            logger.warning("tool_denied", tool=tool_name, role=context.user.role)
+            # A model chose this name, so an unknown one is recorded as a fixed value.
+            audited_name = UNKNOWN_TOOL_NAME if definition is None else tool_name
+            await context.audit_log.record(context.user, audited_name, "denied", "role")
+            logger.warning("tool_denied", tool=audited_name, role=context.user.role)
             message = UNKNOWN_TOOL_MESSAGE if definition is None else ROLE_DENIED_MESSAGE
             return ToolResult(tool_name=tool_name, status="denied", message=message)
 
@@ -165,7 +169,17 @@ class ToolRegistry:
                 tool_name=tool_name, status="error", message=INVALID_ARGUMENTS_MESSAGE
             )
 
-        # Step 4: run it, turning every failure into data.
+        # Step 4: a change that cannot be audited must not happen (rule 2).
+        if definition.risk == "write":
+            is_audited = await context.audit_log.record(
+                context.user, tool_name, "started", "approved"
+            )
+            if not is_audited:
+                return ToolResult(
+                    tool_name=tool_name, status="error", message=AUDIT_UNAVAILABLE_MESSAGE
+                )
+
+        # Step 5: run it, turning every failure into data.
         result = await self._run_with_timeout(definition, arguments, context)
         await context.audit_log.record(context.user, tool_name, result.status, "")
         return result

@@ -35,12 +35,14 @@ services:
       timeout: 3s
       retries: 10
 
-  # No published port and no keys. It trusts the role header, so only the API may reach it.
+  # No published port, and no LLM or Pinecone keys. It checks the signed role token from the API,
+  # so it needs the secret that signs it.
   mcp:
     build: .
     command: [".venv/bin/python", "-m", "mcp_server.server"]
     environment:
       MCP_HOST: 0.0.0.0
+      JWT_SECRET: ${JWT_SECRET:-}
 
   api:
     build: .

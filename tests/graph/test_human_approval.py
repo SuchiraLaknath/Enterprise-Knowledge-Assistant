@@ -128,17 +128,6 @@ async def test_the_tool_cannot_run_twice_if_the_turn_is_resumed_again():
     assert len(mcp_client.calls) == 1
 
 
-async def test_a_role_below_the_tool_is_denied_even_with_approval():
-    # Rule 2: `execute` checks the verified role when the tool runs, whatever came before.
-    graph, dependencies, mcp_client, audit_log = make_setup()
-    await start_turn(graph, dependencies, user=ANALYST)
-
-    await resume_turn(graph, dependencies, ApprovalDecision(tool_call_id="call-7", approved=True))
-
-    assert mcp_client.calls == []
-    assert audit_log.entries[0]["outcome"] == "denied"
-
-
 async def test_writes_are_not_offered_when_the_guard_judge_is_down():
     # With only deterministic guards standing, nothing may be changed.
     from agent.llm_gateway import AllModelsFailedError
@@ -158,6 +147,38 @@ async def test_an_invalid_write_argument_is_refused(status_value):
     arguments = {"incident_id": "LIVE-1041", "status": status_value}
     call = ToolCallRequest("call-7", "admin__update_incident_status", arguments)
     graph, dependencies, mcp_client, _ = make_setup(rounds=[[call]])
+    await start_turn(graph, dependencies)
+
+    await resume_turn(graph, dependencies, ApprovalDecision(tool_call_id="call-7", approved=True))
+
+    assert mcp_client.calls == []
+
+
+async def test_a_write_tool_that_was_not_offered_is_denied_and_never_pauses():
+    # A review found that a model could name a write tool it was not offered, and so pause a
+    # read-only turn, or show a person an approval that their role could never give.
+    graph, dependencies, mcp_client, audit_log = make_setup()
+
+    state = await start_turn(graph, dependencies, user=ANALYST)
+
+    assert state.next == ()
+    assert mcp_client.calls == []
+    assert audit_log.entries[-1]["outcome"] == "denied"
+
+
+async def test_a_change_that_cannot_be_audited_does_not_happen():
+    # Rule 2: during a Postgres outage a write would otherwise leave no record.
+    class FailingAuditLog(InMemoryAuditLog):
+        async def record(self, user, tool_name, outcome, detail):
+            await super().record(user, tool_name, outcome, detail)
+            return False
+
+    llm = FakeLlm(plans=[TOOL_PLAN], answers=["Done."], tool_call_rounds=[[WRITE_CALL]])
+    mcp_client = FakeMcpClient()
+    dependencies = make_agent_dependencies(
+        llm, FakeResearchSearch(), mcp_client=mcp_client, audit_log=FailingAuditLog()
+    )
+    graph = build_agent_graph(InMemorySaver(serde=create_checkpoint_serializer()))
     await start_turn(graph, dependencies)
 
     await resume_turn(graph, dependencies, ApprovalDecision(tool_call_id="call-7", approved=True))

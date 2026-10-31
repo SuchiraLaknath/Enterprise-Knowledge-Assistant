@@ -171,7 +171,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     limits.tools, get_role_access().role_ranking, settings.enabled_faults
                 ),
                 audit_log=audit_log,
-                mcp_client=McpClient(settings.mcp_url, settings.enabled_faults),
+                mcp_client=McpClient(
+                    settings.mcp_url,
+                    settings.enabled_faults,
+                    settings.jwt_secret.get_secret_value(),
+                    limits.tools.mcp_token_lifetime_s,
+                ),
             ),
             jwt_secret=settings.jwt_secret.get_secret_value(),
             role_access=get_role_access(),

@@ -3,43 +3,40 @@
 # characters removed and had Unicode look-alikes folded, so they need only one plain spelling.
 
 input:
-  # Attempts to replace the assistant's instructions with the sender's own.
+  # Attempts to replace the assistant's instructions with the sender's own. Each pattern names
+  # the assistant's own instructions, because staff often say "the rules" or "maintenance mode".
   instruction_override:
-    - 'ignore\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)'
-    - 'disregard\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)'
-    - 'forget\b.{0,40}\b(instructions?|rules?|prompts?)'
-    - 'override\b.{0,40}\b(instructions?|rules?|safety|guardrails?)'
+    - '(ignore|disregard|forget|override)\b.{0,40}\b(all|your|these|previous|prior|above|earlier|system)\b.{0,30}\b(instructions?|rules?|prompts?|guidelines?)'
     - 'you are now\b.{0,40}\b(mode|unrestricted|jailbroken|dan)\b'
-    - '\b(developer|maintenance|debug|god|jailbreak) mode\b'
+    - '\b(enter|enable|activate|switch to|turn on)\b.{0,12}\b(developer|god|jailbreak|unrestricted) mode\b'
     - '\bact as\b.{0,30}\b(unrestricted|without (any )?(rules|restrictions|filters))'
     - 'new instructions?\s*:'
   # Attempts to get internal instructions or secrets out of the system.
   data_exfiltration:
     - '(reveal|show|print|repeat|output|tell me|give me|leak)\b.{0,40}\b(system|developer|hidden|initial) (prompt|message|instructions?)'
-    - '(reveal|show|print|output|give me|leak)\b.{0,40}\b(api[ _-]?keys?|secrets?|passwords?|credentials?|tokens?)\b'
+    - '(reveal|show|print|output|give me|leak)\b.{0,20}\byour\b.{0,20}\b(api[ _-]?keys?|secrets?|passwords?|credentials?|tokens?)\b'
     - '!\[[^\]]*\]\(\s*(https?:)?//'
     - '(send|post|upload|forward|exfiltrate)\b.{0,60}\b(to|at)\b.{0,20}(https?://|www\.)'
   # Attempts to get around the tools' limits.
   tool_abuse:
     - '(call|run|execute|invoke)\b.{0,30}\b(admin|update_incident_status|view_audit_log)\b.{0,30}\b(as|with|using)\b.{0,20}\b(admin|root|role)\b'
-    - '\b(set|change|pretend|assume|grant)\b.{0,30}\bmy (role|access|access level|permissions?)\b'
-    - '\b(i am|i''m|acting as) (the |an? )?(admin|administrator|root)\b'
+    - '\b(set|change|grant|upgrade|make)\b.{0,12}\bmy (role|access|access level|permissions?)\b.{0,12}\b(to|as)\b.{0,12}\b(admin|administrator|root|analyst)\b'
+    - '\b(i am|i''m|acting as) (the |an? )?(admin|administrator|root)\b.{0,6}\b(so|therefore|give|show|grant)\b'
     - 'access_level\s*[:=]'
     - '__(import|class|subclasses|builtins|globals)__'
 
 content:
-  # Text in a document that speaks to the assistant rather than to a reader. The same override
-  # and exfiltration patterns apply, because indirect injection uses the same words.
+  # Text in a document that speaks to the assistant rather than to a reader. These stay away from
+  # words that incident reports use, such as "debug mode", which describe a system.
   injection:
-    - 'ignore\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)'
-    - 'disregard\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)'
+    - '(ignore|disregard|forget|override)\b.{0,40}\b(all|your|these|previous|prior|above|earlier|system)\b.{0,30}\b(instructions?|rules?|prompts?|guidelines?)'
     - 'you are now\b'
-    - '\b(developer|maintenance|debug|god|jailbreak) mode\b'
     - '(reveal|show|print|repeat|output)\b.{0,40}\b(system|developer|hidden|initial) (prompt|message|instructions?)'
     - '!\[[^\]]*\]\('
     - 'include this (image|link)\b'
     - '\b(assistant|ai|chatbot|model)\s*[:,]\s*(you must|please|always|never|do not)\b'
     - '^\s*(system|assistant)\s*:'
+    - '\bsystem\s*:\s*(you|call|ignore|reveal|run|send)\b'
     - '\bthe (assistant|chatbot)\b.{0,20}\b(must|should|always|never)\b'
 
 brand:

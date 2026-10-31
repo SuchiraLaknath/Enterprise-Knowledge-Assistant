@@ -13,9 +13,11 @@ from pathlib import Path
 import yaml
 
 POLICIES_PATH = Path(__file__).parent / "policies.yaml"
-# Characters that render as nothing, which split a word without changing how it looks: zero-width
-# space, non-joiner and joiner, word joiner, byte-order mark and soft hyphen.
-INVISIBLE_CHARACTERS = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad]")
+# Cyrillic letters that look identical to Latin ones, which Unicode folding leaves alone.
+LOOKALIKE_LETTERS = str.maketrans("аеорсіухАЕОРСІХ", "aeopcixyAEOPCIX")
+# Unicode categories that render as nothing: format characters, and combining marks once split
+# from their letters.
+INVISIBLE_CATEGORIES = ("Cf", "Mn")
 WHITESPACE_RUN = re.compile(r"\s+")
 
 CompiledPatterns = dict[str, list[re.Pattern[str]]]
@@ -32,8 +34,13 @@ class SecurityPolicies:
 
 def normalize_text(text: str) -> str:
     """Return text in the one form that the patterns are written for."""
-    folded_text = unicodedata.normalize("NFKC", text)
-    visible_text = INVISIBLE_CHARACTERS.sub("", folded_text)
+    # NFKD folds full-width letters, and splits accents off so that they can be removed.
+    folded_text = unicodedata.normalize("NFKD", text).translate(LOOKALIKE_LETTERS)
+    visible_text = "".join(
+        character
+        for character in folded_text
+        if unicodedata.category(character) not in INVISIBLE_CATEGORIES
+    )
     return WHITESPACE_RUN.sub(" ", visible_text).strip().lower()
 
 
@@ -58,10 +65,14 @@ def get_security_policies() -> SecurityPolicies:
 
 
 def find_matching_category(text: str, patterns: CompiledPatterns) -> str | None:
-    """Return the first category with a pattern in this text, or None."""
-    normalized_text = normalize_text(text)
+    """Return the first category with a pattern in this text, or None.
+
+    Each line is checked as well as the whole text, because a pattern anchored to the start of a
+    line, such as "SYSTEM:", would otherwise only ever match the first line.
+    """
+    candidate_texts = [normalize_text(text), *map(normalize_text, text.splitlines())]
     for category, category_patterns in patterns.items():
         for pattern in category_patterns:
-            if pattern.search(normalized_text):
+            if any(pattern.search(candidate) for candidate in candidate_texts):
                 return category
     return None

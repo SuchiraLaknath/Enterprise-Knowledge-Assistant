@@ -273,3 +273,23 @@ async def test_no_model_for_tool_selection_still_gives_an_answer():
 
     assert DEGRADED_NO_TOOL_MODEL in state["degraded"]
     assert state["final_answer"]
+
+
+async def test_analysis_cannot_change_a_tool_result_before_the_answer():
+    # Attack: generated code edits a shared record, so the answer reports a false status.
+    original = [{"id": "LIVE-1", "status": "open"}]
+    code = 'records[0]["status"] = "resolved"\nresult = 1'
+    llm = FakeLlm(
+        answers=[PLAIN_ANSWER],
+        plans=[TOOL_PLAN],
+        tool_call_rounds=[
+            [tool_call("mcp__incident_records")],
+            [tool_call("python_analysis", {"code": code})],
+            [],
+        ],
+    )
+    dependencies = make_dependencies(llm, mcp_client=FakeMcpClient({"incident_records": original}))
+
+    _, state = await run_turn(dependencies)
+
+    assert state["tool_results"][0].data[0]["status"] == "open"
