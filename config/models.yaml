@@ -14,15 +14,16 @@ answer_effort: low
 # LLM routes: each is an ordered chain of provider:model, tried until one succeeds.
 # The same provider comes first, because Haiku often clears a Sonnet overload, and other
 # providers cover a full Anthropic outage. A model joins a route only after passing that route's
-# structured-output and streaming checks. Groq is supported, but has no model here until its
-# key is valid, because an untested model must not join a route.
+# structured-output, tool-call and streaming checks.
 llm_routes:
   # Reasoning-heavy work: the supervisor, the research planner and the final answer.
   response:
     - anthropic:claude-sonnet-5-5
     - anthropic:claude-haiku-5-5
     - openai:gpt-5.5
+    - groq:openai/gpt-oss-120b
   # High-volume, simple work: guards, the judge, map steps and summaries.
   fast:
     - anthropic:claude-haiku-5-5
+    - groq:openai/gpt-oss-20b
     - openai:gpt-5.4-mini

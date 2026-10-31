@@ -20,6 +20,7 @@ flowchart LR
     graph --> gateway[LLM gateway]
     gateway --> anthropic[Anthropic]
     gateway -.fallback.-> openai[OpenAI]
+    gateway -.fallback.-> groq[Groq]
 
     graph --> retrieval[Hybrid retrieval]
     retrieval --> pinecone[(Pinecone<br/>dense + sparse)]
@@ -136,7 +137,7 @@ Four choices keep the result honest:
 - **Code does the counting.** The model decides which findings belong together, and code counts the documents, so a figure in an answer cannot be invented.
 - **The answer uses findings, not chunks,** so the final prompt stays small however many documents were read.
 
-The activity panel shows the generated plan, the batches, the recursion depth, and the chunks read against the total available. The real measure of coverage is documents analysed: in the payment-outage demo an analyst's plan reads all 22 incidents in scope, using 22 of the 154 chunks they may read, because it fetches only the section holding each root cause. Viewers get normal retrieval with a note ([ADR 0003](adr/0003-viewer-research-limit.md)), and the sandbox's limits are in [ADR 0001](adr/0001-sandbox-limits.md).
+The activity panel shows the generated plan, the batches, the recursion depth, and the chunks read against the total available. The real measure of coverage is documents analysed: in the payment-outage demo an analyst's plan reads all 22 incidents in scope, using 22 of the 154 chunks they may read, because it fetches only the section holding each root cause. Viewers get normal retrieval with a note ([ADR 0003](adr/0003-viewer-research-limit.md)), and the sandbox's limits are in [ADR 0001](adr/0001-sandbox-limits.md). Every document the plan listed counts as in scope, and if any go unread, a fixed notice built from those counts ends the answer, because a model cannot be relied on to admit a shortfall.
 
 ## Security layers
 

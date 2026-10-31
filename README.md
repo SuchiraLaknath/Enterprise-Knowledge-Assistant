@@ -19,7 +19,7 @@ A multi-agent assistant for Commercial Bank employees, built for the AI Lead tec
 
 ## Run it
 
-You need Docker, and API keys for Anthropic, Pinecone and LangSmith. An OpenAI key is optional, and adds a fallback provider. The gateway also supports Groq, but no Groq model is on a route yet ([ADR 0004](docs/adr/0004-model-selection.md)).
+You need Docker, and API keys for Anthropic, Pinecone and LangSmith. OpenAI and Groq keys are optional, and each adds a fallback provider ([ADR 0004](docs/adr/0004-model-selection.md)).
 
 ```bash
 cp .env.example .env     # then fill in the keys. Generate JWT_SECRET: openssl rand -hex 32
@@ -66,7 +66,7 @@ uv run mypy config ingestion resilience retrieval agent api security tools evals
 uv run python -m evals.run_retrieval_eval    # live retrieval quality, using no rerank quota
 ```
 
-To see the fallbacks live, set `FAULTS` before starting the API. It accepts `pinecone`, `rerank`, `mcp`, `anthropic`, `llm`, `tool_timeout`, `redis` and `postgres`, separated by commas.
+To see the fallbacks live, set `FAULTS` before starting the API. It accepts `pinecone`, `rerank`, `mcp`, `anthropic`, `openai`, `groq`, `llm`, `tool_timeout`, `redis` and `postgres`, separated by commas.
 
 ## Results
 
@@ -77,7 +77,7 @@ Checked live against the seeded root causes in the mock corpus, on the demo ques
 | `nadee` | 22 of 22 | Connection pools 8, certificates 7, gateway 5, batch jobs 2 |
 | `admin` | 24 of 24 | Connection pools 8, certificates 8, gateway 6, batch jobs 2 |
 
-A run takes 30 to 50 seconds. It reads only the section holding each root cause, so 22 of the 154 chunks an analyst may read. Retrieval scores a 100% hit rate on the golden questions in `evals/`, which is a small set.
+A run takes 30 to 50 seconds. In about a third of runs the validator rejects the first draft, usually for a claim that goes beyond the evidence, and the rewritten answer passes. It reads only the section holding each root cause, so 22 of the 154 chunks an analyst may read. Retrieval scores a 100% hit rate on the golden questions in `evals/`, which is a small set.
 
 ## How it is built
 
@@ -86,7 +86,7 @@ A run takes 30 to 50 seconds. It reads only the section holding each root cause,
 | UI | Streamlit |
 | API | FastAPI, async, with server-sent events |
 | Orchestration | LangGraph: supervisor pattern, with research as a subgraph |
-| LLM | An in-process gateway over Claude, with OpenAI as fallback |
+| LLM | An in-process gateway over Claude, with OpenAI and Groq as fallbacks |
 | Search | Pinecone hybrid (dense and BM25), namespaces per department, reranking |
 | Tools | A role-checked registry, FastMCP server, sandboxed Python |
 | State | Postgres for checkpoints, memory, audit and feedback. Redis for rate limits |
