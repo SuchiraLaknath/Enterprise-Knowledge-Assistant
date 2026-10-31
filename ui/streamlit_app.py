@@ -30,6 +30,14 @@ DEMO_USERS = {"vimal": "viewer-demo", "nadee": "analyst-demo", "admin": "admin-d
 THUMBS_UP_POSITION = 1
 UNKNOWN_QUESTION = "(not recorded)"
 
+MESSAGE_BOX_HINT = "Ask about policies, runbooks, incidents and more"
+APPROVAL_WAITING_HINT = "Approve or reject the action first"
+API_UNREACHABLE_MESSAGE = "The assistant could not be reached. Please try again."
+NO_ANSWER_MESSAGE = "No answer arrived. Please try again."
+SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again."
+# Used only inside this file, between reading the API's reply and drawing the page.
+SESSION_EXPIRED_EVENT = "session_expired"
+
 # Streamlit gives container keys to the page as `st-key-<key>` classes, which the style below uses.
 CONVERSATION_PANEL_KEY = "conversation_panel"
 ACTIVITY_PANEL_KEY = "activity_panel"
@@ -69,8 +77,19 @@ def start_new_conversation() -> None:
     st.session_state.pop("pending_approval", None)
 
 
+def end_session_with_notice(notice: str) -> None:
+    """Sign out and redraw the page, so that the sidebar never claims a dead session is live."""
+    del st.session_state["access_token"]
+    start_new_conversation()
+    st.session_state.sign_in_notice = notice
+    st.rerun()
+
+
 def show_sign_in() -> None:
     """Show the sign-in controls, or the signed-in user."""
+    if "sign_in_notice" in st.session_state:
+        st.warning(st.session_state.pop("sign_in_notice"))
+
     if "access_token" in st.session_state:
         st.write(f"Signed in as **{st.session_state.username}** ({st.session_state.role})")
         if st.button("Sign out"):
@@ -81,11 +100,15 @@ def show_sign_in() -> None:
 
     username = st.selectbox("Demo user", list(DEMO_USERS))
     if st.button("Sign in"):
-        response = httpx.post(
-            api_url("/auth/login"),
-            json={"username": username, "password": DEMO_USERS[username]},
-            timeout=REQUEST_TIMEOUT,
-        )
+        try:
+            response = httpx.post(
+                api_url("/auth/login"),
+                json={"username": username, "password": DEMO_USERS[username]},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except httpx.HTTPError:
+            st.error(API_UNREACHABLE_MESSAGE)
+            return
         if response.status_code == httpx.codes.OK:
             login = response.json()
             st.session_state.access_token = login["access_token"]
@@ -149,7 +172,7 @@ def stream_events(path: str, payload: dict[str, Any]) -> Any:
         timeout=REQUEST_TIMEOUT,
     ) as response:
         if response.status_code == httpx.codes.UNAUTHORIZED:
-            yield {"type": "error", "message": "Your session has expired. Please sign in again."}
+            yield {"type": SESSION_EXPIRED_EVENT}
             return
         if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
             wait = response.headers.get("retry-after", "a few")
@@ -166,6 +189,7 @@ def stream_events(path: str, payload: dict[str, Any]) -> Any:
 
 def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
     """Draw one turn as it arrives. Tokens go to the draft, and `final` replaces them."""
+    error_was_shown = False
     with st.chat_message("assistant"):
         answer_area = st.empty()
         draft = ""
@@ -183,8 +207,11 @@ def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
                     answer_area.markdown(final_event["answer"])
                 elif event["type"] == "trace" and final_event is not None:
                     final_event["trace_url"] = event["url"]
+                elif event["type"] == SESSION_EXPIRED_EVENT:
+                    end_session_with_notice(SESSION_EXPIRED_MESSAGE)
                 elif event["type"] == "error":
                     st.error(event["message"])
+                    error_was_shown = True
                 else:
                     if event["type"] == "approval":
                         st.session_state.pending_approval = event
@@ -193,12 +220,16 @@ def show_streamed_turn(events: Any, activity_panel: Any, question: str) -> None:
                         st.session_state.activity_lines.append(activity_line)
                         activity_panel.text("\n".join(st.session_state.activity_lines))
         except httpx.HTTPError:
-            st.error("The assistant could not be reached. Please try again.")
+            st.error(API_UNREACHABLE_MESSAGE)
+            error_was_shown = True
 
         # Rule 9: only the final answer is rendered as markdown, and a turn that never finished
         # must not leave an unconfirmed draft on the screen.
         if final_event is None:
             answer_area.empty()
+            # A pause is not a failure, because the approval box comes next.
+            if not error_was_shown and "pending_approval" not in st.session_state:
+                st.error(NO_ANSWER_MESSAGE)
         else:
             final_event["question"] = question
             show_answer_details(final_event)
@@ -293,11 +324,19 @@ def main() -> None:
 
     # This stays outside the columns, because Streamlit pins only a top-level message box to the
     # bottom of the window. Inside a column, it would sit in the page with the messages.
-    message = st.chat_input("Ask about policies, runbooks, incidents and more")
+    # A new message during a pause would leave the paused tool call undecided.
+    waiting_for_decision = "pending_approval" in st.session_state
+    message = st.chat_input(
+        APPROVAL_WAITING_HINT if waiting_for_decision else MESSAGE_BOX_HINT,
+        disabled=waiting_for_decision,
+    )
     with conversation_panel:
         show_chat_history()
         if message:
             run_chat_turn(message, activity_panel)
+            # The turn may have paused, and the message box above was drawn before it did.
+            if "pending_approval" in st.session_state:
+                st.rerun()
         show_pending_approval(activity_panel)
 
 
