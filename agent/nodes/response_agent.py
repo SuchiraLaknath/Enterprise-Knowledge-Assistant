@@ -190,7 +190,10 @@ async def response_agent(state: AgentState, runtime: Runtime[AgentDependencies])
     # The notice is fixed text, added here so that a model cannot leave it out or reword it.
     turn_notice = state.get("turn_notice")
     if turn_notice:
-        final_answer = f"{final_answer}\n\n{turn_notice}"
+        notice_text = f"\n\n{turn_notice}"
+        final_answer += notice_text
+        # The draft gets it too, so that the final event can confirm the draft.
+        emit_event(EventType.TOKEN, text=notice_text)
 
     # Step 3: only now does the answer join the conversation (rule 9).
     emit_event(EventType.STATE, citation_count=len(citations), degraded=degraded)

@@ -144,6 +144,9 @@ async def test_a_viewer_gets_normal_retrieval_and_a_polite_note(graph):
     assert calls_for_schema(llm, ResearchCode) == []
     assert calls_for_schema(llm, BatchAnalysis) == []
     assert state["final_answer"].endswith(RESEARCH_LIMIT_NOTICE)
+    # Rule 9: the notice reaches the draft too, so a correct draft is not reported as replaced.
+    draft = "".join(event["text"] for event in events if event["type"] == "token")
+    assert draft == state["final_answer"]
 
 
 async def test_the_subgraph_refuses_a_viewer_even_if_routing_was_bypassed():
