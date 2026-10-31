@@ -31,4 +31,6 @@ Evidence:
 
 RETRY_FEEDBACK_TEMPLATE = """\
 Your previous answer was rejected: {problems}
-Write it again, fixing this. Use only [n] markers for documents that were provided."""
+Write it again, fixing this. Check every number, date and name against the documents, and leave
+out anything you cannot confirm rather than rewording it. Use only [n] markers for documents that
+were provided."""

@@ -51,6 +51,10 @@ documents in scope were not covered, say so plainly. Any period the employee ask
 already been applied, so the documents here are the ones in scope. Keep the answer concise:
 summarise each theme, rather than listing every finding.
 
+The theme counts are the only totals you may state. Do not count anything yourself, such as how
+many times one service or one cause appears within a theme, because those counts come out wrong.
+Name what recurred and cite the findings, and let the citations show how many there were.
+
 {report}"""
 
 TOOL_RESULTS_TEMPLATE = """\
