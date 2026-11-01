@@ -14,24 +14,24 @@ Three principles drive the design:
 flowchart LR
     user([Employee]) --> ui[Streamlit UI<br/>chat and activity panel]
     ui -- "HTTP + SSE" --> api[FastAPI<br/>JWT auth, rate limit]
-    api --> graph[LangGraph<br/>agent graph]
+    api --> agent_graph[LangGraph<br/>agent graph]
     api <--> redis[(Redis<br/>token buckets)]
 
-    graph --> gateway[LLM gateway]
+    agent_graph --> gateway[LLM gateway]
     gateway --> anthropic[Anthropic]
     gateway -.fallback.-> openai[OpenAI]
     gateway -.fallback.-> groq[Groq]
 
-    graph --> retrieval[Hybrid retrieval]
+    agent_graph --> retrieval[Hybrid retrieval]
     retrieval --> pinecone[(Pinecone<br/>dense + sparse)]
     retrieval -.fallback.-> bm25[Local BM25]
 
-    graph --> tools[Tool registry]
+    agent_graph --> tools[Tool registry]
     tools -- "signed role token" --> mcp[FastMCP server<br/>dummy enterprise data]
     tools --> sandbox[Python sandbox]
 
-    graph <--> postgres[(Postgres<br/>checkpoints, memory,<br/>feedback, audit)]
-    graph -. traces .-> langsmith[LangSmith]
+    agent_graph <--> postgres[(Postgres<br/>checkpoints, memory,<br/>feedback, audit)]
+    agent_graph -. traces .-> langsmith[LangSmith]
 ```
 
 ## Agent graph
