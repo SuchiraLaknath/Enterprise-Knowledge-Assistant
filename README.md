@@ -4,6 +4,7 @@ A multi-agent assistant for Commercial Bank employees, built for the AI Lead tec
 
 | What you might look for | Where |
 |---|---|
+| Demo video (45 minutes) | [Watch on Google Drive](https://drive.google.com/file/d/1kR9HFMsAToWPVgL-NIBts7RSIJwLWE8M/view?usp=sharing) |
 | Architecture and diagrams | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Assumptions and trade-offs | [docs/adr/](docs/adr/) |
 
